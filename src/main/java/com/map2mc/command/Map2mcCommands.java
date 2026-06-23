@@ -7,6 +7,13 @@ import com.map2mc.build.BuildSettings;
 import com.map2mc.build.Placement;
 import com.map2mc.build.ordering.AscendingYStrategy;
 import com.map2mc.build.ordering.OrderingContext;
+import com.map2mc.schem.BlockStateResolver;
+import com.map2mc.schem.Rotation4;
+import com.map2mc.schem.SchemPaths;
+import com.map2mc.schem.SchematicData;
+import com.map2mc.schem.SchematicPlacer;
+import com.map2mc.schem.SchematicReader;
+import com.map2mc.schem.SchematicReport;
 import com.map2mc.shape.TestShapes;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -21,6 +28,8 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,7 +104,73 @@ public final class Map2mcCommands {
                         })))
                 // ── census <radius> — headless diagnostic: count placed blocks + Y range ──────
                 .then(literal("census").then(argument("radius", IntegerArgumentType.integer(1, 64))
-                        .executes(Map2mcCommands::census))));
+                        .executes(Map2mcCommands::census)))
+                // ── hero <path> [rotation] — load a .schem and build it bottom-up ─────────────
+                .then(literal("hero").then(argument("path", StringArgumentType.string())
+                        .executes(ctx -> hero(ctx, 0))
+                        .then(argument("rotation", IntegerArgumentType.integer(0, 270))
+                                .executes(ctx -> hero(ctx, IntegerArgumentType.getInteger(ctx, "rotation"))))))
+                // ── dumpschem <path> — parse a .schem and write the Python-style report ───────
+                .then(literal("dumpschem").then(argument("path", StringArgumentType.string())
+                        .executes(Map2mcCommands::dumpSchem))));
+    }
+
+    private static int hero(CommandContext<ServerCommandSource> ctx, int rotationDeg) {
+        ServerCommandSource src = ctx.getSource();
+        ServerWorld world = src.getWorld();
+        String name = StringArgumentType.getString(ctx, "path");
+        final Rotation4 rot;
+        try {
+            rot = Rotation4.fromDegrees(rotationDeg);
+        } catch (IllegalArgumentException e) {
+            src.sendError(Text.literal("map2mc: " + e.getMessage()));
+            return 0;
+        }
+        try {
+            Path file = SchemPaths.resolveSchematic(name);
+            SchematicData data = SchematicReader.read(file);
+            BlockState[] resolved = BlockStateResolver.resolve(data.palette());
+            BlockPos anchor = BlockPos.ofFloored(src.getPosition());
+            List<Placement> placements =
+                    SchematicPlacer.toPlacements(data, resolved, anchor, rot, true);
+
+            long id = BuildQueueManager.get(world).submit(placements, new AscendingYStrategy(),
+                    OrderingContext.fromPlacements(placements), BuildSettings.cinematicDefault(),
+                    "hero " + name);
+            final int count = placements.size();
+            src.sendFeedback(() -> Text.literal(String.format(
+                    "map2mc: hero '%s' (Sponge v%d, %dx%dx%d) — %d blocks, rot %d°, ASCENDING_Y id=%d",
+                    name, data.version(), data.width(), data.height(), data.length(), count, rotationDeg, id)),
+                    false);
+            return 1;
+        } catch (Exception e) {
+            Map2mc.LOGGER.error("[map2mc] hero failed for {}", name, e);
+            src.sendError(Text.literal("map2mc: hero failed: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int dumpSchem(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        String name = StringArgumentType.getString(ctx, "path");
+        try {
+            Path file = SchemPaths.resolveSchematic(name);
+            SchematicData data = SchematicReader.read(file);
+            String report = SchematicReport.render(data);
+
+            Files.createDirectories(SchemPaths.dumpDir());
+            Path out = SchemPaths.dumpDir().resolve(file.getFileName().toString() + ".dump.txt");
+            Files.writeString(out, report);
+
+            src.sendFeedback(() -> Text.literal(
+                    "map2mc: dumped " + name + " (Sponge v" + data.version() + ") -> " + out), false);
+            Map2mc.LOGGER.info("[map2mc] dumpschem {} (v{}):\n{}", name, data.version(), report);
+            return 1;
+        } catch (Exception e) {
+            Map2mc.LOGGER.error("[map2mc] dumpschem failed for {}", name, e);
+            src.sendError(Text.literal("map2mc: dumpschem failed: " + e.getMessage()));
+            return 0;
+        }
     }
 
     /**

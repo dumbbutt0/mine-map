@@ -17,6 +17,9 @@
 /bin/
 /out/
 
+# Run logs that escape the run/ dir
+/logs/
+
 # OS
 *.class
 .DS_Store

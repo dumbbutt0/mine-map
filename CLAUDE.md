@@ -59,12 +59,37 @@ legs; y4 copper platform + one `oak_log[axis=y]` at center). They are our own cr
 
 Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yarn names.
 
-## Verified Yarn API signatures (record drift here as found)
-- Commands: `net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT`;
-  literals via `net.minecraft.server.command.CommandManager.literal`.
-- _(Phase 1)_ tick hook: `net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK`.
-- _(Phase 2)_ NBT read: `net.minecraft.nbt.NbtIo.readCompressed(Path, NbtSizeTracker)` — confirm
-  the `NbtSizeTracker` factory (`ofUnlimited()` vs `of(long)`) at implementation time.
+## Verified Yarn API signatures (1.21.11 / Yarn build.6 — verified via javap of the named MC jar)
+- Commands: `net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT`; literals/args
+  via `net.minecraft.server.command.CommandManager.literal/argument`.
+- Tick hook: `net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK`;
+  shutdown: `ServerLifecycleEvents.SERVER_STOPPING`.
+- Chunk forceload: `ServerWorld.setChunkForced(int x, int z, boolean)`; `new ChunkPos(BlockPos)`,
+  `new ChunkPos(long)`, `ChunkPos.toLong()`.
+- **NBT read: `NbtIo.readCompressed(Path, NbtSizeTracker)`; tracker = `NbtSizeTracker.ofUnlimitedBytes()`**
+  (NOT `ofUnlimited()`).
+- **NBT getters return `Optional` in 1.21.11.** Use the defaulted/`*OrEmpty` variants:
+  `getShort(k, short)`, `getInt(k, int)` → primitive; `getByteArray(k)`/`getIntArray(k)` →
+  `Optional<...>`; `getCompoundOrEmpty(k)` → `NbtCompound`; `getKeys()` → `Set<String>`;
+  `contains(k)` → boolean.
+- Block resolve (manual, no command registry-wrapper): `Registries.BLOCK.get(Identifier.of(id))`
+  (DefaultedRegistry → returns air for unknown), `Block.getStateManager().getProperty(name)`,
+  `Property.parse(String)` → `Optional<T>`, `BlockState.with(Property<T>, T)`,
+  `BlockState.rotate(BlockRotation)`, `BlockState.isAir()`.
+- Rotations: `net.minecraft.util.BlockRotation.{NONE, CLOCKWISE_90, CLOCKWISE_180, COUNTERCLOCKWISE_90}`.
+- `Identifier.of(String)` (not `new Identifier(...)`); `BlockPos.ofFloored(Vec3d)`.
+
+## Commands (all under `/map2mc`, server-side)
+`ping` · `testbuild <height> [shape pyramid|tower] [bpt]` · `status` · `pause` · `resume` ·
+`cancel` · `speed <bpt>` · `census <radius>` (headless diagnostic) ·
+`hero <path> [rotation 0|90|180|270]` · `dumpschem <path>` (writes a report that diffs against
+`make_test_schem.py --verify`). Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
+
+## Status: Phases 0–2 complete and verified
+- P0: scaffold + ping (headless server smoke).
+- P1: build queue + ordering; 8 unit tests + headless paced bottom-up pyramid (680 blocks).
+- P2: `.schem` v2/v3 reader; `dumpschem` byte-identical to the Python oracle; `hero` builds the
+  fixture (62 blocks) and rotates. 11 unit tests total.
 
 ## Build & run (this WSL2 box)
 JDK 21 is at `~/.local/jdk-21`; Gradle is bootstrapped via the wrapper. Every invocation needs
