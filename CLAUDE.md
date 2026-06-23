@@ -108,6 +108,11 @@ Verification is **headless-first**: GameTests + the `dumpschem`-vs-Python diff p
 a GUI; `runClient` under WSLg (`-Xmx2G`, RAM is tight at ~7.7 GiB) is used only for the inherently
 visual "visibly builds bottom-up" gates.
 
+**Recording a real cinematic timelapse** (native client + Iris shaders + ReplayMod orbit — the
+three-independent-layers model): see [`RECORDING.md`](RECORDING.md). Build the plain
+`build/libs/map2mc-<version>.jar` (not `-sources`/`-dev`) and run the recording client on a native
+OS, not WSLg.
+
 ## Conventions
 - Base package `com.map2mc`; one logger `Map2mc.LOGGER` (`org.slf4j`, name `map2mc`).
 - **All block placement + the tick loop run on the server thread.** Heavy I/O (`.schem` parsing)
