@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "map2mc",
+  "version": "${version}",
+  "name": "MapToMinecraft",
+  "description": "Assembles landmark builds and lays them down as cinematic, bottom-up timelapses.",
+  "authors": ["map2mc"],
+  "contact": {
+    "homepage": "https://github.com/bradautomates/claude-video",
+    "sources": "https://github.com/bradautomates/claude-video"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.map2mc.Map2mc"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

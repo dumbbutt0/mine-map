@@ -1,0 +1,22 @@
+# Gradle / Loom (anchored to repo root so they don't match source packages like com/map2mc/build/)
+/.gradle/
+/build/
+/run/
+/remappedSrc/
+/.loom-cache/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+/bin/
+/out/
+
+# OS
+*.class
+.DS_Store
