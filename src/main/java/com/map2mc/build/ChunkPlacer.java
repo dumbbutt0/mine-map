@@ -1,5 +1,6 @@
 package com.map2mc.build;
 
+import com.map2mc.undo.UndoLog;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.ChunkPos;
 
@@ -23,8 +24,17 @@ public final class ChunkPlacer {
         this.world = world;
     }
 
-    /** Place one block, forcing its chunk on first touch. Must be called on the server thread. */
-    public void place(Placement p, int flags) {
+    /**
+     * Place one block, forcing its chunk on first touch. Must be called on the server thread.
+     *
+     * @param undo if non-null, the block's PRIOR state is recorded here before it is overwritten, so
+     *             the build can be reverted later (Phase 2.5). Pass null for placements that should
+     *             not be undoable (e.g. an undo restoring prior states — no undo-of-undo).
+     */
+    public void place(Placement p, int flags, UndoLog undo) {
+        if (undo != null) {
+            undo.record(p.pos().asLong(), world.getBlockState(p.pos()));
+        }
         ChunkPos cp = new ChunkPos(p.pos());
         if (forced.add(cp.toLong())) {
             world.setChunkForced(cp.x, cp.z, true);

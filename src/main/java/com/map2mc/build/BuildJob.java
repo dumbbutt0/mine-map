@@ -1,11 +1,16 @@
 package com.map2mc.build;
 
+import com.map2mc.undo.UndoLog;
+
 import java.util.List;
 
 /**
  * One build in flight: an already-ordered list of placements plus a cursor marking how far we've
  * gotten. Pacing ({@code blocksPerTick}) lives on the job so {@code /map2mc speed} can retune the
  * active build live. The ordering was applied once at submit time — this class never re-sorts.
+ *
+ * <p>The job also owns an {@link UndoLog} that accumulates each overwritten block's prior state as
+ * the queue places it, so the finished (or cancelled) build can be reverted by {@code /map2mc undo}.
  */
 public final class BuildJob {
 
@@ -14,6 +19,7 @@ public final class BuildJob {
     private final String strategyName;
     private final String label;
     private final int placeFlags;
+    private final UndoLog undoLog;
 
     private int blocksPerTick;
     private int cursor = 0;
@@ -27,6 +33,11 @@ public final class BuildJob {
         this.label = label;
         this.blocksPerTick = Math.max(1, blocksPerTick);
         this.placeFlags = placeFlags;
+        this.undoLog = new UndoLog(label);
+    }
+
+    public UndoLog undoLog() {
+        return undoLog;
     }
 
     public long id() {

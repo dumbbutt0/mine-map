@@ -25,6 +25,26 @@ never owns the camera or recording.
 - **Phase 2 — hero asset (`com.map2mc.schem`):** `SchematicReader` for Sponge `.schem` v2 **and**
   v3, fed block-by-block through the Phase 1 queue with `AscendingY`.
   - `/map2mc hero <path> [x y z] [rotation]`, `/map2mc dumpschem <path>`.
+- **Phase 2.5 — placement targeting (`com.map2mc.place`, `preview`, `undo`):** make placement
+  visible and cheap to undo. ONE shared `PlacementResolver` turns (anchor + `AnchorMode` + rotation)
+  into the exact world positions; `preview` and `hero` BOTH call it so an outline always matches the
+  build (`SchematicPlacer` now just delegates to it — no second copy of the transform).
+  - **Anchor modes** (`AnchorMode`): `CORNER` = the given point is the build's min corner (the old
+    behavior); `CENTER_GROUND` = the point is the build's horizontal **center** and, with ground-snap,
+    its vertical **base**. `CENTER_GROUND` is the default for both `hero`/`preview` and the no-coord case.
+  - **Coords** use the vanilla `Vec3ArgumentType.vec3(false)`, so `~ ~ ~` (relative) and `^ ^ ^N`
+    (local) resolve against the command source for free. No-coord `hero <file>` drops the build a
+    configurable distance in front of the player (`Map2mcConfig.frontDistance`, ground-snapped),
+    rotated to **face the player** (`LookMath.facingRotation`; convention: a schem's `+Z` face is its
+    "front").
+  - **Preview** (`com.map2mc.preview.PreviewManager`): a server-spawned `END_ROD` particle outline of
+    the build's `Bounds`, re-emitted each few ticks and auto-clearing (`Map2mcConfig.previewDurationTicks`,
+    ~30s) or via `/map2mc preview clear`. No blocks are placed.
+  - **Undo** (`com.map2mc.undo.{UndoLog,UndoManager}`): every build captures each overwritten block's
+    PRIOR state in `ChunkPlacer.place`; on completion/cancel the log is pushed to a small per-world
+    stack (**depth `UndoManager.MAX_DEPTH` = 5**). `/map2mc undo` cancels any active build then restores
+    the most recent log (replayed through `ChunkPlacer`). `/map2mc clear <radius>` is an undoable
+    region wipe.
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)
 GZIP-compressed big-endian NBT. **Detect by presence of a `Blocks` compound ⇒ v3, else v2.**
@@ -78,18 +98,34 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
   `BlockState.rotate(BlockRotation)`, `BlockState.isAir()`.
 - Rotations: `net.minecraft.util.BlockRotation.{NONE, CLOCKWISE_90, CLOCKWISE_180, COUNTERCLOCKWISE_90}`.
 - `Identifier.of(String)` (not `new Identifier(...)`); `BlockPos.ofFloored(Vec3d)`.
+- **Phase 2.5/3 (verified via javap):** position args `net.minecraft.command.argument.Vec3ArgumentType`
+  — `vec3(boolean centerIntegers)` as the arg, `Vec3ArgumentType.getVec3(ctx, name)` → `Vec3d`
+  (resolves `~`/`^` against the source). Source pose: `ServerCommandSource.getPosition()` → `Vec3d`,
+  `getRotation()` → `Vec2f` of **(x=pitch, y=yaw)**. Particles:
+  `ServerWorld.spawnParticles(T, boolean force, boolean important, double x,y,z, int count, double dx,dy,dz, double speed)`
+  (forced/long-distance overload; `ParticleTypes.END_ROD`). `BlockPos.asLong()`/`fromLong(long)` for
+  compact undo keys. Player camera move (Phase 3 fly):
+  `ServerPlayerEntity.teleport(ServerWorld, double x,y,z, Set<PositionFlag>, float yaw, float pitch, boolean)`
+  with `PositionFlag.{X,Y,Z,Y_ROT,X_ROT}`.
 
 ## Commands (all under `/map2mc`, server-side)
 `ping` · `testbuild <height> [shape pyramid|tower] [bpt]` · `status` · `pause` · `resume` ·
 `cancel` · `speed <bpt>` · `census <radius>` (headless diagnostic) ·
-`hero <path> [rotation 0|90|180|270]` · `dumpschem <path>` (writes a report that diffs against
-`make_test_schem.py --verify`). Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
+`hero <path> [pos] [rotation 0|90|180|270] [corner|center]` (no args ⇒ in front of you, facing you) ·
+`preview <path> [pos] [rotation] [corner|center]` · `preview clear` · `undo` · `clear <radius>` ·
+`dumpschem <path>` (writes a report that diffs against `make_test_schem.py --verify`).
+`pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 
-## Status: Phases 0–2 complete and verified
+## Status: Phases 0–2.5 complete and verified
 - P0: scaffold + ping (headless server smoke).
 - P1: build queue + ordering; 8 unit tests + headless paced bottom-up pyramid (680 blocks).
 - P2: `.schem` v2/v3 reader; `dumpschem` byte-identical to the Python oracle; `hero` builds the
   fixture (62 blocks) and rotates. 11 unit tests total.
+- P2.5: shared `PlacementResolver` (corner/center anchor, rotation, ground-snap) + `~`/`^` coords +
+  facing default + particle `preview` + `undo`. 27 unit tests. Headless smoke proved: hero `^ ^ ^8`
+  placed 62 blocks (census 6786→6848), `undo` restored exactly 62 (→6786), `preview` box equals the
+  hero placement region, no-coord hero placed in front facing the player, cancel+undo restored the
+  partial. (The in-scope Eiffel `Copper_Eiffel_Tower.schem` = 86×222×85, **34,840 non-air blocks**.)
 
 ## Build & run (this WSL2 box)
 JDK 21 is at `~/.local/jdk-21`; Gradle is bootstrapped via the wrapper. Every invocation needs
@@ -119,4 +155,8 @@ OS, not WSLg.
   happens once in the command handler, off the tick loop; only finished placement lists are queued.
 - Everything modular and heavily commented; state assumptions inline.
 - Encapsulate the `.schem` index formula in exactly one place and unit-test it.
+- Likewise the placement transform lives in exactly one place (`place/PlacementResolver`); `preview`,
+  `hero`, and the legacy `SchematicPlacer` all route through it so an outline can never disagree with
+  the build. Its position math is pure (boolean occupancy, no `BlockState`) so it unit-tests with no
+  Minecraft bootstrap.
 - Commit after each phase's gate passes.

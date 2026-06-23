@@ -2,6 +2,8 @@ package com.map2mc;
 
 import com.map2mc.build.BuildQueueManager;
 import com.map2mc.command.Map2mcCommands;
+import com.map2mc.preview.PreviewManager;
+import com.map2mc.undo.UndoManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -36,7 +38,14 @@ public class Map2mc implements ModInitializer {
         // The spine: tick the per-world build queues at the end of every server tick (so placements
         // settle before the next client sync), and clean up forced chunks when the server stops.
         ServerTickEvents.END_SERVER_TICK.register(BuildQueueManager::onEndServerTick);
+        // Phase 2.5: drive the preview particle outline's expiry + re-emission on the same hook.
+        ServerTickEvents.END_SERVER_TICK.register(PreviewManager::onEndServerTick);
         ServerLifecycleEvents.SERVER_STOPPING.register(BuildQueueManager::onServerStopping);
+        // Drop transient placement state when the server stops so it can't leak across world reloads.
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            PreviewManager.clearAll();
+            UndoManager.clear();
+        });
 
         Map2mcCommands.register();
     }

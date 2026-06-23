@@ -3,6 +3,7 @@ package com.map2mc.build;
 import com.map2mc.Map2mc;
 import com.map2mc.build.ordering.OrderingContext;
 import com.map2mc.build.ordering.OrderingStrategy;
+import com.map2mc.undo.UndoManager;
 import net.minecraft.server.world.ServerWorld;
 
 import java.util.ArrayDeque;
@@ -47,11 +48,12 @@ public final class BuildQueue {
             return;
         }
         for (Placement p : job.nextBatch(job.blocksPerTick())) {
-            placer.place(p, job.placeFlags());
+            placer.place(p, job.placeFlags(), job.undoLog()); // capture prior states for /map2mc undo
         }
         if (job.isDone()) {
             jobs.pollFirst();
             placer.releaseAll();
+            UndoManager.push(world, job.undoLog()); // make the finished build undoable
             Map2mc.LOGGER.info("[map2mc] build complete: {} ({} blocks)", job.label(), job.total());
         }
     }
@@ -78,6 +80,7 @@ public final class BuildQueue {
         BuildJob j = jobs.pollFirst();
         if (j == null) return false;
         placer.releaseAll();
+        UndoManager.push(world, j.undoLog()); // a partially-placed build is still undoable
         return true;
     }
 
