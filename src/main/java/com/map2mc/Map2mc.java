@@ -2,6 +2,8 @@ package com.map2mc;
 
 import com.map2mc.build.BuildQueueManager;
 import com.map2mc.command.Map2mcCommands;
+import com.map2mc.orbit.LastBuild;
+import com.map2mc.orbit.OrbitFlight;
 import com.map2mc.preview.PreviewManager;
 import com.map2mc.undo.UndoManager;
 import net.fabricmc.api.ModInitializer;
@@ -40,11 +42,15 @@ public class Map2mc implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(BuildQueueManager::onEndServerTick);
         // Phase 2.5: drive the preview particle outline's expiry + re-emission on the same hook.
         ServerTickEvents.END_SERVER_TICK.register(PreviewManager::onEndServerTick);
+        // Phase 3: advance any in-progress mod-driven orbit camera fly.
+        ServerTickEvents.END_SERVER_TICK.register(OrbitFlight::onEndServerTick);
         ServerLifecycleEvents.SERVER_STOPPING.register(BuildQueueManager::onServerStopping);
         // Drop transient placement state when the server stops so it can't leak across world reloads.
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             PreviewManager.clearAll();
             UndoManager.clear();
+            OrbitFlight.clearAll();
+            LastBuild.clear();
         });
 
         Map2mcCommands.register();

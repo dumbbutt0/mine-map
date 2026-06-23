@@ -45,6 +45,21 @@ never owns the camera or recording.
     stack (**depth `UndoManager.MAX_DEPTH` = 5**). `/map2mc undo` cancels any active build then restores
     the most recent log (replayed through `ChunkPlacer`). `/map2mc clear <radius>` is an undoable
     region wipe.
+- **Phase 3 — cinematic (`com.map2mc.pace`, `com.map2mc.orbit`):** turn the paced engine into a
+  recording tool.
+  - **Duration-driven pacing** (`pace/{Pacing,PaceSetting}`): the user sets a target *duration*; the
+    engine derives `blocksPerTick = ceil(totalNonAir / (durationSeconds × 20))`. DURATION is the
+    **default** (`Map2mcConfig.defaultDurationSeconds` = 120s); MANUAL (`pace bpt <n>`) and INSTANT
+    remain. `hero` resolves the bpt from `PaceSetting` at submit; `/map2mc speed <n>` still
+    live-retunes a running build.
+  - **Orbit export** (`orbit/{Orbit,OrbitKeyframe,OrbitExporter,OrbitFlight,LastBuild}`): from the
+    last hero build's `Bounds` (`LastBuild`, per world), compute a slow circular camera path — N
+    keyframes on a radius around the centre, always aimed at it, rising gently, with build-time mapped
+    onto a short render time. **DECISION:** emit a *documented keyframe table* under
+    `<gameDir>/map2mc/orbits/` (columns = ReplayMod Position-keyframe fields) rather than writing
+    ReplayMod's undocumented, version-fragile `timelines.json`; plus an optional mod-driven spectator
+    `fly` that samples the SAME `Orbit.poseAt`, so what you film matches the table. `Orbit.poseAt` is
+    the single geometry source (unit-tested: on-circle + look-at-centre).
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)
 GZIP-compressed big-endian NBT. **Detect by presence of a `Blocks` compound ⇒ v3, else v2.**
@@ -74,7 +89,7 @@ legs; y4 copper platform + one `oak_log[axis=y]` at center). They are our own cr
 | Yarn mappings | 1.21.11+build.6 |
 | Fabric API | 0.141.4+1.21.11 |
 | Fabric Loom | 1.17.12 |
-| Gradle | 8.14.5 (wrapper) |
+| Gradle | 9.6.0 (wrapper) — Loom 1.17 requires Gradle **9**, not 8 (its plugin marker wants api-version 9.5.0) |
 | Java | 21 (Temurin) |
 
 Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yarn names.
@@ -113,10 +128,13 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
 `cancel` · `speed <bpt>` · `census <radius>` (headless diagnostic) ·
 `hero <path> [pos] [rotation 0|90|180|270] [corner|center]` (no args ⇒ in front of you, facing you) ·
 `preview <path> [pos] [rotation] [corner|center]` · `preview clear` · `undo` · `clear <radius>` ·
-`dumpschem <path>` (writes a report that diffs against `make_test_schem.py --verify`).
+`dumpschem <path>` (writes a report that diffs against `make_test_schem.py --verify`) ·
+`pace <120|2min|30s|instant>` / `pace bpt <n>` (next build's pacing; default = duration 120s) ·
+`orbit [radius] [duration] [keyframes] [fly]` / `orbit stop` (write a ReplayMod keyframe table around
+the last build; optional mod-driven spectator fly).
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 
-## Status: Phases 0–2.5 complete and verified
+## Status: Phases 0–3 complete and verified
 - P0: scaffold + ping (headless server smoke).
 - P1: build queue + ordering; 8 unit tests + headless paced bottom-up pyramid (680 blocks).
 - P2: `.schem` v2/v3 reader; `dumpschem` byte-identical to the Python oracle; `hero` builds the
@@ -126,6 +144,9 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
   placed 62 blocks (census 6786→6848), `undo` restored exactly 62 (→6786), `preview` box equals the
   hero placement region, no-coord hero placed in front facing the player, cancel+undo restored the
   partial. (The in-scope Eiffel `Copper_Eiffel_Tower.schem` = 86×222×85, **34,840 non-air blocks**.)
+- P3: duration-driven pacing + orbit export. 38 unit tests. Headless gate: the Eiffel at
+  `pace 120` built to completion in **116 s** (target 120 s; 15 b/t), manual override (`pace bpt`,
+  `speed`) works, and `orbit` wrote a keyframe table (on-circle + look-at-centre, time-compressed).
 
 ## Build & run (this WSL2 box)
 JDK 21 is at `~/.local/jdk-21`; Gradle is bootstrapped via the wrapper. Every invocation needs
@@ -143,6 +164,13 @@ cd /home/dummy/clones/mine-map
 Verification is **headless-first**: GameTests + the `dumpschem`-vs-Python diff prove logic without
 a GUI; `runClient` under WSLg (`-Xmx2G`, RAM is tight at ~7.7 GiB) is used only for the inherently
 visual "visibly builds bottom-up" gates.
+
+> **Headless gotcha (cost real debugging time):** a dedicated `runServer` with no players online
+> **pauses after 60 s** — vanilla `pause-when-empty-seconds` (default 60). That stops
+> `END_SERVER_TICK`, so any build running >60 s appears to "freeze" mid-way (gametime stalls at
+> ~1199). It is NOT a mod bug. For any headless run that must tick past a minute (e.g. the ~2-minute
+> Eiffel), put **`pause-when-empty-seconds=0`** in `run/server.properties`. Drive the server through a
+> FIFO and start `./gradlew runServer < fifo &` BEFORE opening the writer fd, or the pipe deadlocks.
 
 **Recording a real cinematic timelapse** (native client + Iris shaders + ReplayMod orbit — the
 three-independent-layers model): see [`RECORDING.md`](RECORDING.md). Build the plain

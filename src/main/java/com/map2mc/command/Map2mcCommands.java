@@ -13,6 +13,13 @@ import com.map2mc.place.AnchorMode;
 import com.map2mc.place.Bounds;
 import com.map2mc.place.LookMath;
 import com.map2mc.place.LookMath.SourcePose;
+import com.map2mc.orbit.LastBuild;
+import com.map2mc.orbit.Orbit;
+import com.map2mc.orbit.OrbitExporter;
+import com.map2mc.orbit.OrbitFlight;
+import com.map2mc.orbit.OrbitKeyframe;
+import com.map2mc.pace.Pacing;
+import com.map2mc.pace.PaceSetting;
 import com.map2mc.place.PlacementResolver;
 import com.map2mc.place.ResolvedBuild;
 import com.map2mc.preview.PreviewManager;
@@ -34,12 +41,15 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.command.argument.Vec3ArgumentType;
+import net.minecraft.entity.Entity;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -158,6 +168,42 @@ public final class Map2mcCommands {
                                                 .then(literal("center").executes(ctx -> previewPos(ctx,
                                                         IntegerArgumentType.getInteger(ctx, "rotation"),
                                                         AnchorMode.CENTER_GROUND)))))))
+                // ── pace <duration|instant> | pace bpt <n> — set NEXT build's pacing policy ────
+                .then(literal("pace")
+                        .then(literal("bpt").then(argument("n", IntegerArgumentType.integer(1, 4096))
+                                .executes(ctx -> {
+                                    int n = IntegerArgumentType.getInteger(ctx, "n");
+                                    PaceSetting.setManual(n);
+                                    ctx.getSource().sendFeedback(
+                                            () -> Text.literal("map2mc: pace = " + PaceSetting.describe()), false);
+                                    return 1;
+                                })))
+                        .then(argument("duration", StringArgumentType.word())
+                                .executes(Map2mcCommands::pace)))
+                // ── orbit [radius] [duration] [keyframes] [fly] — export a filming orbit ───────
+                .then(literal("orbit")
+                        .executes(ctx -> orbit(ctx, -1, Map2mcConfig.orbitRenderSeconds,
+                                Map2mcConfig.orbitKeyframes, false))
+                        .then(literal("fly").executes(ctx -> orbit(ctx, -1,
+                                Map2mcConfig.orbitRenderSeconds, Map2mcConfig.orbitKeyframes, true)))
+                        .then(literal("stop").executes(Map2mcCommands::orbitStop))
+                        .then(argument("radius", IntegerArgumentType.integer(1, 4096))
+                                .executes(ctx -> orbit(ctx, IntegerArgumentType.getInteger(ctx, "radius"),
+                                        Map2mcConfig.orbitRenderSeconds, Map2mcConfig.orbitKeyframes, false))
+                                .then(argument("duration", IntegerArgumentType.integer(1, 3600))
+                                        .executes(ctx -> orbit(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "radius"),
+                                                IntegerArgumentType.getInteger(ctx, "duration"),
+                                                Map2mcConfig.orbitKeyframes, false))
+                                        .then(argument("keyframes", IntegerArgumentType.integer(2, 64))
+                                                .executes(ctx -> orbit(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "radius"),
+                                                        IntegerArgumentType.getInteger(ctx, "duration"),
+                                                        IntegerArgumentType.getInteger(ctx, "keyframes"), false))
+                                                .then(literal("fly").executes(ctx -> orbit(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "radius"),
+                                                        IntegerArgumentType.getInteger(ctx, "duration"),
+                                                        IntegerArgumentType.getInteger(ctx, "keyframes"), true)))))))
                 // ── undo — revert the most recent build ───────────────────────────────────────
                 .then(literal("undo").executes(Map2mcCommands::undo))
                 // ── clear <radius> — wipe a cube around you (undoable) ────────────────────────
@@ -227,15 +273,21 @@ public final class Map2mcCommands {
                 src.sendError(Text.literal("map2mc: '" + name + "' has no non-air blocks"));
                 return 0;
             }
-            BuildSettings settings = BuildSettings.cinematicDefault();
+            int count = placements.size();
+            // Duration-driven pacing is the default; /map2mc pace sets the policy, /map2mc speed
+            // still live-retunes after submit. blocksPerTick is derived from the non-air count.
+            int bpt = PaceSetting.resolveBpt(count);
+            BuildSettings settings = new BuildSettings(bpt, Block.NOTIFY_LISTENERS, true);
             long id = BuildQueueManager.get(world).submit(placements, new AscendingYStrategy(),
                     OrderingContext.fromPlacements(placements), settings, "hero " + name);
             SchematicData d = r.data();
-            int count = placements.size();
+            int eta = Pacing.estimateSeconds(count, bpt);
+            // Remember this build so /map2mc orbit can frame a camera around it.
+            LastBuild.set(world, r.build().bounds(), eta, "hero " + name);
             src.sendFeedback(() -> Text.literal(String.format(
-                    "map2mc: hero '%s' (v%d %dx%dx%d) — %d blocks, %s/%s, %s @ %d b/t id=%d",
+                    "map2mc: hero '%s' (v%d %dx%dx%d) — %d blocks, %s/%s, %s; %s -> %d b/t (~%ds) id=%d",
                     name, d.version(), d.width(), d.height(), d.length(), count, mode, rot, posDesc,
-                    settings.blocksPerTick(), id)), false);
+                    PaceSetting.describe(), bpt, eta, id)), false);
             return 1;
         } catch (Exception e) {
             Map2mc.LOGGER.error("[map2mc] hero failed for {}", name, e);
@@ -296,6 +348,83 @@ public final class Map2mcCommands {
     }
 
     // ── undo / clear ─────────────────────────────────────────────────────────────────────────
+
+    /** {@code /map2mc pace <120|2min|30s|instant>} — duration presets or raw seconds. */
+    private static int pace(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        String s = StringArgumentType.getString(ctx, "duration").toLowerCase();
+        try {
+            if (s.equals("instant")) {
+                PaceSetting.setInstant();
+            } else if (s.endsWith("min")) {
+                PaceSetting.setDuration(Integer.parseInt(s.substring(0, s.length() - 3).trim()) * 60);
+            } else if (s.endsWith("s")) {
+                PaceSetting.setDuration(Integer.parseInt(s.substring(0, s.length() - 1).trim()));
+            } else {
+                PaceSetting.setDuration(Integer.parseInt(s.trim()));
+            }
+        } catch (NumberFormatException e) {
+            src.sendError(Text.literal(
+                    "map2mc: pace takes 120, 2min, 30s, instant, or 'bpt <n>' — got '" + s + "'"));
+            return 0;
+        }
+        src.sendFeedback(() -> Text.literal("map2mc: pace = " + PaceSetting.describe()
+                + " (applies to the next hero build; /map2mc speed retunes a running one)"), false);
+        return 1;
+    }
+
+    /** Compute + export a filming orbit around the most recent build; optionally fly it. */
+    private static int orbit(CommandContext<ServerCommandSource> ctx, int radius, int durationSecs,
+                             int keyframes, boolean fly) {
+        ServerCommandSource src = ctx.getSource();
+        ServerWorld world = src.getWorld();
+        LastBuild.Info info = LastBuild.get(world);
+        if (info == null) {
+            src.sendError(Text.literal("map2mc: no recent build in this world — run /map2mc hero first"));
+            return 0;
+        }
+        Orbit.Params p = Orbit.Params.fromBounds(info.bounds(),
+                radius <= 0 ? 0 : radius, Map2mcConfig.orbitRadiusFactor);
+        long renderMs = durationSecs * 1000L;
+        long buildMs = info.buildSeconds() * 1000L;
+        List<OrbitKeyframe> kfs = Orbit.compute(p.cx(), p.cz(), p.aimY(), p.radius(),
+                p.camYStart(), p.camYEnd(), keyframes, renderMs, buildMs);
+        try {
+            Path out = OrbitExporter.export(kfs, p, durationSecs, info);
+            src.sendFeedback(() -> Text.literal(String.format(
+                    "map2mc: orbit — %d keyframes, radius %d, render %ds (build ~%ds) -> %s",
+                    keyframes, (int) p.radius(), durationSecs, info.buildSeconds(), out)), false);
+            Map2mc.LOGGER.info("[map2mc] orbit table:\n{}", OrbitExporter.render(kfs, p, durationSecs, info));
+        } catch (IOException e) {
+            Map2mc.LOGGER.error("[map2mc] orbit export failed", e);
+            src.sendError(Text.literal("map2mc: orbit export failed: " + e.getMessage()));
+            return 0;
+        }
+        if (fly) {
+            Entity e = src.getEntity();
+            if (e instanceof ServerPlayerEntity pl) {
+                OrbitFlight.start(pl, world, p, durationSecs);
+                src.sendFeedback(() -> Text.literal("map2mc: flying camera (spectator) for "
+                        + durationSecs + "s — /map2mc orbit stop to abort"), false);
+            } else {
+                src.sendError(Text.literal("map2mc: 'fly' requires a player command source"));
+            }
+        }
+        return 1;
+    }
+
+    private static int orbitStop(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        Entity e = src.getEntity();
+        if (!(e instanceof ServerPlayerEntity pl)) {
+            src.sendError(Text.literal("map2mc: 'orbit stop' requires a player command source"));
+            return 0;
+        }
+        boolean ok = OrbitFlight.cancel(pl.getUuid(), src.getServer());
+        src.sendFeedback(() -> Text.literal(ok
+                ? "map2mc: orbit fly stopped" : "map2mc: no orbit fly in progress"), false);
+        return ok ? 1 : 0;
+    }
 
     private static int undo(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource src = ctx.getSource();

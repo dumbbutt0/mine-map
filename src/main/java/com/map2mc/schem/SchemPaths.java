@@ -22,6 +22,11 @@ public final class SchemPaths {
         return FabricLoader.getInstance().getGameDir().resolve("map2mc").resolve("dump");
     }
 
+    /** Where exported ReplayMod orbit keyframe tables are written (Phase 3). */
+    public static Path orbitDir() {
+        return FabricLoader.getInstance().getGameDir().resolve("map2mc").resolve("orbits");
+    }
+
     /** Resolve {@code name} under the schematics dir; throw if it escapes the directory. */
     public static Path resolveSchematic(String name) throws IOException {
         Path base = schematicsDir().toAbsolutePath().normalize();
