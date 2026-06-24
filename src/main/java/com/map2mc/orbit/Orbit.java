@@ -31,23 +31,48 @@ public final class Orbit {
      * @param renderMs    total camera/render duration
      * @param buildMs     the build's real duration (for the replay-time mapping)
      */
-    public static OrbitKeyframe poseAt(double cx, double cz, double aimY, double radius,
-                                       double camYStart, double camYEnd, double frac,
-                                       long renderMs, long buildMs) {
+    /**
+     * Yaw/pitch (degrees, Minecraft convention) for a camera at {@code (camX,camY,camZ)} looking at
+     * {@code (tgtX,tgtY,tgtZ)}. The single source of the look-at math, shared by the orbit and the
+     * Phase A director (which aims at the construction frontier rather than the orbit centre).
+     *
+     * @return {@code {yaw, pitch}}
+     */
+    public static float[] lookAt(double camX, double camY, double camZ,
+                                 double tgtX, double tgtY, double tgtZ) {
+        double dx = tgtX - camX, dy = tgtY - camY, dz = tgtZ - camZ;
+        double horiz = Math.sqrt(dx * dx + dz * dz);
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float pitch = (float) Math.toDegrees(Math.atan2(-dy, horiz));
+        return new float[]{yaw, pitch};
+    }
+
+    /**
+     * Camera pose on the orbit circle around {@code (cx,cz)} at {@code radius} (height ramping
+     * camYStart→camYEnd with {@code frac}), but AIMED at an arbitrary target {@code (aimX,aimY,aimZ)}.
+     * This is the generalization the director uses to orbit the build centre while tracking the
+     * construction frontier. Pass {@code aim = (cx, aimY, cz)} to look at the orbit centre.
+     */
+    public static OrbitKeyframe poseAtAiming(double cx, double cz, double radius,
+                                             double camYStart, double camYEnd, double frac,
+                                             double aimX, double aimY, double aimZ,
+                                             long renderMs, long buildMs) {
         double angle = 2.0 * Math.PI * frac;
         double x = cx + radius * Math.cos(angle);
         double z = cz + radius * Math.sin(angle);
         double y = camYStart + (camYEnd - camYStart) * frac;
 
-        // Look from the camera toward the build center (cx, aimY, cz).
-        double dx = cx - x, dy = aimY - y, dz = cz - z;
-        double horiz = Math.sqrt(dx * dx + dz * dz);
-        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-        float pitch = (float) Math.toDegrees(Math.atan2(-dy, horiz));
-
+        float[] look = lookAt(x, y, z, aimX, aimY, aimZ);
         long renderT = Math.round(renderMs * frac);
         long replayT = Math.round(buildMs * frac);
-        return new OrbitKeyframe(x, y, z, yaw, pitch, 0f, renderT, replayT);
+        return new OrbitKeyframe(x, y, z, look[0], look[1], 0f, renderT, replayT);
+    }
+
+    /** Camera pose on the orbit, looking at the orbit centre {@code (cx, aimY, cz)}. */
+    public static OrbitKeyframe poseAt(double cx, double cz, double aimY, double radius,
+                                       double camYStart, double camYEnd, double frac,
+                                       long renderMs, long buildMs) {
+        return poseAtAiming(cx, cz, radius, camYStart, camYEnd, frac, cx, aimY, cz, renderMs, buildMs);
     }
 
     /** N keyframes evenly spaced around the full circle (the last closes the loop). */

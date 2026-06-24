@@ -40,6 +40,16 @@ public final class BuildJob {
         return undoLog;
     }
 
+    /**
+     * The ordered placement list (unmodifiable view). With {@link #placed()} as the cursor, the
+     * Phase A frontier is {@code ordered().subList(max(0, placed()-N), placed())} — the last N
+     * actually-placed blocks — so the director needs no extra per-block tracking. Read only on the
+     * server thread (same thread that advances the cursor via {@link #nextBatch}).
+     */
+    public List<Placement> ordered() {
+        return java.util.Collections.unmodifiableList(ordered);
+    }
+
     public long id() {
         return id;
     }

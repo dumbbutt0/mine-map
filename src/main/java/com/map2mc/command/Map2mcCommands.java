@@ -2,8 +2,10 @@ package com.map2mc.command;
 
 import com.map2mc.Map2mc;
 import com.map2mc.Map2mcConfig;
+import com.map2mc.build.BuildJob;
 import com.map2mc.build.BuildQueue;
 import com.map2mc.build.BuildQueueManager;
+import com.map2mc.film.DirectorCamera;
 import com.map2mc.build.BuildSettings;
 import com.map2mc.build.ChunkPlacer;
 import com.map2mc.build.Placement;
@@ -48,6 +50,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -204,6 +207,26 @@ public final class Map2mcCommands {
                                                         IntegerArgumentType.getInteger(ctx, "radius"),
                                                         IntegerArgumentType.getInteger(ctx, "duration"),
                                                         IntegerArgumentType.getInteger(ctx, "keyframes"), true)))))))
+                // ── film <path> [pos] [rotation] [radius] [duration] — build + fly the director ─
+                // No coords ⇒ in front of the player, facing them; with pos ⇒ center-on-ground.
+                .then(literal("film")
+                        .then(literal("stop").executes(Map2mcCommands::filmStop))
+                        .then(argument("path", StringArgumentType.string())
+                                .executes(ctx -> filmDefault(ctx, -1, -1))
+                                .then(argument("pos", Vec3ArgumentType.vec3(false))
+                                        .executes(ctx -> filmPos(ctx, 0, -1, -1))
+                                        .then(argument("rotation", IntegerArgumentType.integer(0, 270))
+                                                .executes(ctx -> filmPos(ctx,
+                                                        IntegerArgumentType.getInteger(ctx, "rotation"), -1, -1))
+                                                .then(argument("radius", IntegerArgumentType.integer(1, 4096))
+                                                        .executes(ctx -> filmPos(ctx,
+                                                                IntegerArgumentType.getInteger(ctx, "rotation"),
+                                                                IntegerArgumentType.getInteger(ctx, "radius"), -1))
+                                                        .then(argument("duration", IntegerArgumentType.integer(1, 3600))
+                                                                .executes(ctx -> filmPos(ctx,
+                                                                        IntegerArgumentType.getInteger(ctx, "rotation"),
+                                                                        IntegerArgumentType.getInteger(ctx, "radius"),
+                                                                        IntegerArgumentType.getInteger(ctx, "duration")))))))))
                 // ── undo — revert the most recent build ───────────────────────────────────────
                 .then(literal("undo").executes(Map2mcCommands::undo))
                 // ── clear <radius> — wipe a cube around you (undoable) ────────────────────────
@@ -263,15 +286,24 @@ public final class Map2mcCommands {
                 "@ " + anchor.toShortString());
     }
 
-    private static int runHero(ServerCommandSource src, String name, BlockPos anchor,
-                               AnchorMode mode, Rotation4 rot, String posDesc) {
+    /** What a successful hero submission yields — shared by {@code hero} and {@code film}. */
+    private record HeroSubmit(long id, int count, SchematicData data, Bounds bounds, int etaSec, int bpt) {
+    }
+
+    /**
+     * Load + submit a hero build through the shared pipeline (resolver → pacing → queue → LastBuild).
+     * Returns {@code null} after sending an error on failure. Reused by {@code film} so the camera
+     * always tracks exactly the build {@code hero} would have made.
+     */
+    private static HeroSubmit submitHero(ServerCommandSource src, String name, BlockPos anchor,
+                                         AnchorMode mode, Rotation4 rot) {
         ServerWorld world = src.getWorld();
         try {
             Resolved r = load(name, anchor, mode, rot);
             List<Placement> placements = r.build().placements();
             if (placements.isEmpty()) {
                 src.sendError(Text.literal("map2mc: '" + name + "' has no non-air blocks"));
-                return 0;
+                return null;
             }
             int count = placements.size();
             // Duration-driven pacing is the default; /map2mc pace sets the policy, /map2mc speed
@@ -280,20 +312,100 @@ public final class Map2mcCommands {
             BuildSettings settings = new BuildSettings(bpt, Block.NOTIFY_LISTENERS, true);
             long id = BuildQueueManager.get(world).submit(placements, new AscendingYStrategy(),
                     OrderingContext.fromPlacements(placements), settings, "hero " + name);
-            SchematicData d = r.data();
             int eta = Pacing.estimateSeconds(count, bpt);
-            // Remember this build so /map2mc orbit can frame a camera around it.
+            // Remember this build so /map2mc orbit and /map2mc film can frame a camera around it.
             LastBuild.set(world, r.build().bounds(), eta, "hero " + name);
-            src.sendFeedback(() -> Text.literal(String.format(
-                    "map2mc: hero '%s' (v%d %dx%dx%d) — %d blocks, %s/%s, %s; %s -> %d b/t (~%ds) id=%d",
-                    name, d.version(), d.width(), d.height(), d.length(), count, mode, rot, posDesc,
-                    PaceSetting.describe(), bpt, eta, id)), false);
-            return 1;
+            return new HeroSubmit(id, count, r.data(), r.build().bounds(), eta, bpt);
         } catch (Exception e) {
             Map2mc.LOGGER.error("[map2mc] hero failed for {}", name, e);
             src.sendError(Text.literal("map2mc: hero failed: " + e.getMessage()));
+            return null;
+        }
+    }
+
+    private static int runHero(ServerCommandSource src, String name, BlockPos anchor,
+                               AnchorMode mode, Rotation4 rot, String posDesc) {
+        HeroSubmit h = submitHero(src, name, anchor, mode, rot);
+        if (h == null) {
             return 0;
         }
+        SchematicData d = h.data();
+        src.sendFeedback(() -> Text.literal(String.format(
+                "map2mc: hero '%s' (v%d %dx%dx%d) — %d blocks, %s/%s, %s; %s -> %d b/t (~%ds) id=%d",
+                name, d.version(), d.width(), d.height(), d.length(), h.count(), mode, rot, posDesc,
+                PaceSetting.describe(), h.bpt(), h.etaSec(), h.id())), false);
+        return 1;
+    }
+
+    // ── film (Phase A director camera) ─────────────────────────────────────────────────────────
+
+    /** {@code /map2mc film <file>} no coords: build in front of the player, fly the director. */
+    private static int filmDefault(CommandContext<ServerCommandSource> ctx, int radius, int durationSecs) {
+        ServerCommandSource src = ctx.getSource();
+        SourcePose pose = poseOf(src);
+        BlockPos anchor = BlockPos.ofFloored(
+                LookMath.frontOfLookHorizontal(pose, Map2mcConfig.frontDistance));
+        Rotation4 rot = LookMath.facingRotation(pose.yaw());
+        return runFilm(src, StringArgumentType.getString(ctx, "path"),
+                anchor, AnchorMode.CENTER_GROUND, rot, radius, durationSecs);
+    }
+
+    private static int filmPos(CommandContext<ServerCommandSource> ctx, int rotationDeg, int radius, int durationSecs) {
+        ServerCommandSource src = ctx.getSource();
+        final Rotation4 rot;
+        try {
+            rot = Rotation4.fromDegrees(rotationDeg);
+        } catch (IllegalArgumentException e) {
+            src.sendError(Text.literal("map2mc: " + e.getMessage()));
+            return 0;
+        }
+        BlockPos anchor = BlockPos.ofFloored(Vec3ArgumentType.getVec3(ctx, "pos"));
+        return runFilm(src, StringArgumentType.getString(ctx, "path"),
+                anchor, AnchorMode.CENTER_GROUND, rot, radius, durationSecs);
+    }
+
+    /**
+     * Submit the build (reusing the hero pipeline) and start the frontier-tracking director. A player
+     * source flies the camera live; a console/dedicated-server source runs the director in log-only
+     * mode (the headless gate's path).
+     */
+    private static int runFilm(ServerCommandSource src, String name, BlockPos anchor, AnchorMode mode,
+                               Rotation4 rot, int radius, int durationSecs) {
+        ServerWorld world = src.getWorld();
+        ServerPlayerEntity player = src.getEntity() instanceof ServerPlayerEntity sp ? sp : null;
+        if (durationSecs > 0) {
+            PaceSetting.setDuration(durationSecs); // "film this in N seconds" (sets the build pace)
+        }
+        HeroSubmit h = submitHero(src, name, anchor, mode, rot);
+        if (h == null) {
+            return 0;
+        }
+        BuildJob job = BuildQueueManager.get(world).active();
+        if (job == null) {
+            src.sendError(Text.literal("map2mc: no active build to film"));
+            return 0;
+        }
+        Orbit.Params params = Orbit.Params.fromBounds(
+                h.bounds(), radius <= 0 ? 0 : radius, Map2mcConfig.orbitRadiusFactor);
+        Vec3d fallbackAim = h.bounds().center();
+        DirectorCamera.start(world, player, job, params, Map2mcConfig.frontierWindow, fallbackAim, h.etaSec());
+
+        final int r = (int) params.radius();
+        final String camState = player != null
+                ? "spectator + camera engaged" : "headless: logging director poses (no camera)";
+        src.sendFeedback(() -> Text.literal(String.format(
+                "map2mc: film '%s' — %d blocks, %s; frontier-tracking orbit r=%d, window %d. %s; "
+                        + "/map2mc film stop to end.",
+                name, h.count(), PaceSetting.describe(), r, Map2mcConfig.frontierWindow, camState)), false);
+        return 1;
+    }
+
+    private static int filmStop(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        boolean ok = DirectorCamera.stop(src.getWorld(), src.getServer());
+        src.sendFeedback(() -> Text.literal(
+                ok ? "map2mc: film stopped (build continues)" : "map2mc: not filming"), false);
+        return ok ? 1 : 0;
     }
 
     // ── preview ──────────────────────────────────────────────────────────────────────────────

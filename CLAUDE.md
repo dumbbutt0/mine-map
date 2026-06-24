@@ -60,6 +60,25 @@ never owns the camera or recording.
     ReplayMod's undocumented, version-fragile `timelines.json`; plus an optional mod-driven spectator
     `fly` that samples the SAME `Orbit.poseAt`, so what you film matches the table. `Orbit.poseAt` is
     the single geometry source (unit-tested: on-circle + look-at-centre).
+- **Phase A — director camera (`com.map2mc.film`, `com.map2mc.client`):** the camera auto-flies a
+  rising orbit that TRACKS the construction front, driven by build PROGRESS (placed/total) — so a
+  finished-looking timelapse needs no manual keyframing (if the build hitches, the camera waits).
+  - **Server director** (`film/DirectorCamera`, generalizes `OrbitFlight`): each tick computes the
+    pose from `FilmDirector.directorPose(progress, frontier, params, …)` (pure, unit-tested),
+    teleports the spectator player there (chunk loading), and publishes prev+cur pose to a
+    `volatile film/DirectorState`. A console/headless `film` runs LOG-ONLY (no camera) — the
+    headless gate's path.
+  - **Client smoothing** (`client/mixin/CameraUpdateMixin` — the mod's FIRST mixin): overrides
+    `Camera.update` at `@At("TAIL")` each render frame, lerping prev→cur by the partial-tick, so
+    motion is smooth at render fps, not 20 Hz teleport judder. `client/Map2mcClient`
+    (`ClientModInitializer`) hides the HUD while filming. (Camera-entity teleport keeps the
+    overridden viewpoint near loaded chunks.)
+  - **Frontier** = centroid (+bbox) of the last `Map2mcConfig.frontierWindow` (256) placed blocks,
+    from `BuildJob.ordered()` + the cursor — no new per-block tracking; works for any ordering.
+  - **Geometry reuse:** `Orbit.poseAt` was generalized into `Orbit.lookAt()` + `Orbit.poseAtAiming()`
+    so the camera orbits the build centre while AIMING at the frontier — ONE geometry source; the
+    existing `OrbitTest` is unchanged (poseAt delegates).
+  - `/map2mc film <path> [pos] [rotation] [radius] [duration]` (+ `film stop`).
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)
 GZIP-compressed big-endian NBT. **Detect by presence of a `Blocks` compound ⇒ v3, else v2.**
@@ -123,7 +142,7 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
   `ServerPlayerEntity.teleport(ServerWorld, double x,y,z, Set<PositionFlag>, float yaw, float pitch, boolean)`
   with `PositionFlag.{X,Y,Z,Y_ROT,X_ROT}`.
 
-## Commands (all under `/map2mc`, server-side)
+## Commands (all under `/map2mc`; server-side except the `film` camera, which also drives the client)
 `ping` · `testbuild <height> [shape pyramid|tower] [bpt]` · `status` · `pause` · `resume` ·
 `cancel` · `speed <bpt>` · `census <radius>` (headless diagnostic) ·
 `hero <path> [pos] [rotation 0|90|180|270] [corner|center]` (no args ⇒ in front of you, facing you) ·
@@ -131,10 +150,12 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
 `dumpschem <path>` (writes a report that diffs against `make_test_schem.py --verify`) ·
 `pace <120|2min|30s|instant>` / `pace bpt <n>` (next build's pacing; default = duration 120s) ·
 `orbit [radius] [duration] [keyframes] [fly]` / `orbit stop` (write a ReplayMod keyframe table around
-the last build; optional mod-driven spectator fly).
+the last build; optional mod-driven spectator fly) ·
+`film <path> [pos] [rotation] [radius] [duration]` / `film stop` (build it AND auto-fly the
+frontier-tracking director camera; from a player = live fly, from console = log-only).
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 
-## Status: Phases 0–3 complete and verified
+## Status: Phases 0–3 + Phase A complete and verified
 - P0: scaffold + ping (headless server smoke).
 - P1: build queue + ordering; 8 unit tests + headless paced bottom-up pyramid (680 blocks).
 - P2: `.schem` v2/v3 reader; `dumpschem` byte-identical to the Python oracle; `hero` builds the

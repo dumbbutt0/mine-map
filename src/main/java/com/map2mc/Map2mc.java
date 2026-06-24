@@ -2,6 +2,7 @@ package com.map2mc;
 
 import com.map2mc.build.BuildQueueManager;
 import com.map2mc.command.Map2mcCommands;
+import com.map2mc.film.DirectorCamera;
 import com.map2mc.orbit.LastBuild;
 import com.map2mc.orbit.OrbitFlight;
 import com.map2mc.preview.PreviewManager;
@@ -40,6 +41,9 @@ public class Map2mc implements ModInitializer {
         // The spine: tick the per-world build queues at the end of every server tick (so placements
         // settle before the next client sync), and clean up forced chunks when the server stops.
         ServerTickEvents.END_SERVER_TICK.register(BuildQueueManager::onEndServerTick);
+        // Phase A: drive the frontier-tracking director camera AFTER the queue tick, so it reads the
+        // build progress this tick produced. (Registration order = invocation order.)
+        ServerTickEvents.END_SERVER_TICK.register(DirectorCamera::onEndServerTick);
         // Phase 2.5: drive the preview particle outline's expiry + re-emission on the same hook.
         ServerTickEvents.END_SERVER_TICK.register(PreviewManager::onEndServerTick);
         // Phase 3: advance any in-progress mod-driven orbit camera fly.
@@ -50,6 +54,7 @@ public class Map2mc implements ModInitializer {
             PreviewManager.clearAll();
             UndoManager.clear();
             OrbitFlight.clearAll();
+            DirectorCamera.clearAll();
             LastBuild.clear();
         });
 

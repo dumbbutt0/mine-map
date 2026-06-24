@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.map2mc.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "environment": "client",
+  "client": [
+    "CameraUpdateMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

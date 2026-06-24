@@ -29,4 +29,17 @@ public final class Map2mcConfig {
 
     /** Orbit radius = this × the build's horizontal half-extent, when radius isn't given. */
     public static volatile double orbitRadiusFactor = 2.0;
+
+    // ── Phase A: director camera (frontier-tracking film) ────────────────────────────────────────
+    /** How many recently-placed blocks define the construction "frontier" the camera tracks. */
+    public static volatile int frontierWindow = 256;
+
+    /** Full revolutions the director orbit makes across the whole build (progress 0→1). */
+    public static volatile int filmOrbitTurns = 1;
+
+    /** Blocks the camera sits ABOVE the frontier centroid (so it looks slightly down at the front). */
+    public static volatile double filmCameraRise = 10.0;
+
+    /** Blocks above the frontier centroid the camera AIMS (0 = look straight at the front). */
+    public static volatile double filmAimLeadY = 2.0;
 }
