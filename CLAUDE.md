@@ -96,6 +96,16 @@ never owns the camera or recording.
     (portrait window / ReplayMod 1080×1920). Framing tracks the **true current top** (`Frontier.bbox().maxY()`,
     not the lagging centroid) so the full height stays in frame. `framingFor`/`directorPose` (the V1
     frontier orbit) are kept for V2-3's `--orbit-only` and the shot library.
+  - **Aerial establishing shot (low-height phase)** (`FilmDirector.aerialPose`): a wide-based build seen
+    by the rising orbit while it has footprint but little height is a distant strip on grass (~half the
+    runtime is dead). So `DirectorCamera.tickFilm` runs **two phases by build HEIGHT** (not progress —
+    the base eats ~50% of blocks at ~10% height): while `currentHeight < filmAerialUntilHeightFrac·finalHeight`
+    a **high-oblique aerial shot looks DOWN at the footprint** (camera framed to the footprint width at
+    `camRadius = dW·margin`, `camY = max(camRadius·tan(pitch), top+clearance)` so it's always above the
+    build, drifting azimuth `filmAerialTurns`); then a one-time **CUT** (`f.lastPose=null` → `prev==cur`,
+    no lerp) hands off to the unchanged V2-1 rising orbit. Knobs: `filmAerialEnabled` (false = pure V2-1),
+    `filmAerialUntilHeightFrac` (0.22), `filmAerialPitchDeg` (55), `filmAerialMargin`, `filmAerialTurns`.
+    This is an early hand-wiring of V2-2/V2-3's `establishing`+`rising_orbit` shots — fold in when they land.
   - `/map2mc film <path> [pos] [rotation] [radius] [duration]` (+ `film stop`).
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)

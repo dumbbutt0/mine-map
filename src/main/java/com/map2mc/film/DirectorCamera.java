@@ -48,6 +48,7 @@ public final class DirectorCamera {
         final long buildMs;
         DirectorState.Pose lastPose;
         double maxFrontierY = Double.NEGATIVE_INFINITY; // monotonic clamp so the camera never dips
+        boolean cutToOrbit = false;   // fired once when the aerial→orbit height threshold is crossed
         int logTicks = 0;
 
         Film(UUID player, ServerWorld world, BuildJob job, Bounds fullBounds, int radiusOverride,
@@ -66,6 +67,9 @@ public final class DirectorCamera {
     }
 
     private static final Map<RegistryKey<World>, Film> ACTIVE = new HashMap<>();
+
+    /** Blocks the aerial camera is kept above the current build top (so it always looks DOWN on it). */
+    private static final double AERIAL_CLEARANCE = 8.0;
 
     private DirectorCamera() {
     }
@@ -150,17 +154,50 @@ public final class DirectorCamera {
         double clampedTop = Math.max(raw.bbox().maxY() + 1.0, f.maxFrontierY);
         f.maxFrontierY = clampedTop;
 
-        // V2-1 aspect-aware vertical + hero framing: size the camera distance so the CURRENT extent
-        // fills the configured target frame (9:16 by default), with the camera low and the aim high so
-        // the structure looms. Distance grows tight→wide as the build climbs.
-        Orbit.Params params = FilmDirector.framingForAspect(f.fullBounds, clampedTop, f.radiusOverride,
-                Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
-                Map2mcConfig.filmHeadroomFrac, Map2mcConfig.filmFrameMargin,
-                Map2mcConfig.filmHeroCamFrac, Map2mcConfig.filmHeroAimFrac);
-        double frac = progress * Math.max(1, Map2mcConfig.filmOrbitTurns);
-        // poseAt orbits the build centre at the framed radius and looks UP the central axis at aimY.
-        OrbitKeyframe k = Orbit.poseAt(params.cx(), params.cz(), params.aimY(), params.radius(),
-                params.camYStart(), params.camYEnd(), frac, 0L, f.buildMs);
+        double cx = (f.fullBounds.minX() + f.fullBounds.maxX() + 1) / 2.0;
+        double cz = (f.fullBounds.minZ() + f.fullBounds.maxZ() + 1) / 2.0;
+        double baseY = f.fullBounds.minY();
+        double finalHeight = Math.max(1.0, f.fullBounds.maxY() - baseY);
+        double currentHeight = clampedTop - baseY;
+        double threshold = Map2mcConfig.filmAerialUntilHeightFrac * finalHeight;
+        boolean aerial = Map2mcConfig.filmAerialEnabled && currentHeight < threshold;
+
+        final OrbitKeyframe k;
+        final String phase;
+        final double logRadius;
+        final double logAimY;
+        if (aerial) {
+            // Low phase: a high-oblique aerial shot looking DOWN at the footprint (the legs/platform
+            // pattern is the subject), drifting its azimuth slowly across the phase.
+            double aerialFrac = Map2mcConfig.filmAerialTurns
+                    * Math.min(1.0, Math.max(0.0, currentHeight / Math.max(1.0, threshold)));
+            k = FilmDirector.aerialPose(f.fullBounds, aerialFrac,
+                    Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
+                    Map2mcConfig.filmAerialPitchDeg, Map2mcConfig.filmAerialMargin,
+                    clampedTop, AERIAL_CLEARANCE, 0L, f.buildMs);
+            phase = "aerial";
+            logRadius = Math.hypot(k.x() - cx, k.z() - cz);
+            logAimY = baseY;
+        } else {
+            // First tick at/after the threshold: CUT (instant jump, no lerp) from the aerial shot to
+            // the rising orbit. currentHeight is monotonic, so this fires exactly once.
+            if (!f.cutToOrbit) {
+                f.lastPose = null;
+                f.cutToOrbit = true;
+            }
+            // V2-1 aspect-aware vertical + hero framing: the camera distance fills the configured target
+            // frame, low + aiming high so the structure looms; distance grows as the build climbs.
+            Orbit.Params params = FilmDirector.framingForAspect(f.fullBounds, clampedTop, f.radiusOverride,
+                    Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
+                    Map2mcConfig.filmHeadroomFrac, Map2mcConfig.filmFrameMargin,
+                    Map2mcConfig.filmHeroCamFrac, Map2mcConfig.filmHeroAimFrac);
+            double frac = progress * Math.max(1, Map2mcConfig.filmOrbitTurns);
+            k = Orbit.poseAt(params.cx(), params.cz(), params.aimY(), params.radius(),
+                    params.camYStart(), params.camYEnd(), frac, 0L, f.buildMs);
+            phase = "orbit";
+            logRadius = params.radius();
+            logAimY = params.aimY();
+        }
 
         DirectorState.Pose cur = new DirectorState.Pose(k.x(), k.y(), k.z(), k.yaw(), k.pitch());
         DirectorState.Pose prev = f.lastPose != null ? f.lastPose : cur;
@@ -174,17 +211,16 @@ public final class DirectorCamera {
         }
 
         if (f.logTicks++ % 10 == 0 || f.job.isDone()) {
-            double aimY = params.aimY();
             Map2mc.LOGGER.info(
-                    "[map2mc][director] progress={} placed={}/{} topY={} count={} radius={} "
+                    "[map2mc][director] phase={} progress={} placed={}/{} topY={} count={} radius={} "
                             + "camPose=({},{},{}) yaw={} pitch={} aim=({},{},{})",
-                    String.format("%.3f", progress), f.job.placed(), f.job.total(),
+                    phase, String.format("%.3f", progress), f.job.placed(), f.job.total(),
                     String.format("%.1f", clampedTop), raw.count(),
-                    String.format("%.1f", params.radius()),
+                    String.format("%.1f", logRadius),
                     String.format("%.2f", cur.x()), String.format("%.2f", cur.y()), String.format("%.2f", cur.z()),
                     String.format("%.2f", cur.yaw()), String.format("%.2f", cur.pitch()),
-                    String.format("%.2f", params.cx()), String.format("%.2f", aimY),
-                    String.format("%.2f", params.cz()));
+                    String.format("%.2f", cx), String.format("%.2f", logAimY),
+                    String.format("%.2f", cz));
         }
     }
 

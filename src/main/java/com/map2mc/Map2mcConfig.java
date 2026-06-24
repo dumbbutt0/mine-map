@@ -73,6 +73,26 @@ public final class Map2mcConfig {
     /** Hero up-look: aim height as a fraction of the current build height (high → camera looks UP). */
     public static volatile double filmHeroAimFrac = 0.85;
 
+    // ── Aerial establishing shot for the low-height phase ────────────────────────────────────────
+    // A wide-based build (footprint but little height) seen by the rising orbit is a distant strip on
+    // grass. So the low phase gets a high-oblique AERIAL shot looking DOWN at the footprint, then CUTS
+    // to the rising orbit once the build is tall enough.
+
+    /** Aerial establishing shot for the low phase (false = pure V2-1 rising orbit). */
+    public static volatile boolean filmAerialEnabled = true;
+
+    /** Switch from the aerial shot to the rising orbit at this fraction of FINAL height. */
+    public static volatile double filmAerialUntilHeightFrac = 0.22;
+
+    /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). */
+    public static volatile double filmAerialPitchDeg = 55.0;
+
+    /** Zoom-out multiplier on the aerial footprint framing. */
+    public static volatile double filmAerialMargin = 1.10;
+
+    /** Azimuth rotation (turns) across the aerial phase, so it drifts rather than sitting static. */
+    public static volatile double filmAerialTurns = 0.30;
+
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
     // (process-global, not persisted): they reset on relaunch, so once you like them, bake the
@@ -113,6 +133,14 @@ public final class Map2mcConfig {
         return d;
     }
 
+    private static boolean boolIn(String v) {
+        return switch (v.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "true", "on", "1", "yes", "y" -> true;
+            case "false", "off", "0", "no", "n" -> false;
+            default -> throw new IllegalArgumentException("'" + v + "' is not a boolean (true/false/on/off)");
+        };
+    }
+
     // Registry order = the order `/map2mc get` lists them (the V2-1 framing knobs grouped last).
     private static final java.util.List<Knob> KNOBS = java.util.List.of(
             new Knob("frontDistance", () -> String.valueOf(frontDistance), v -> frontDistance = dblIn(v, 0, 256)),
@@ -129,7 +157,12 @@ public final class Map2mcConfig {
             new Knob("filmFrameMargin", () -> String.valueOf(filmFrameMargin), v -> filmFrameMargin = dblIn(v, 0.5, 4.0)),
             new Knob("filmHeadroomFrac", () -> String.valueOf(filmHeadroomFrac), v -> filmHeadroomFrac = dblIn(v, 0, 1)),
             new Knob("filmHeroCamFrac", () -> String.valueOf(filmHeroCamFrac), v -> filmHeroCamFrac = dblIn(v, 0, 1)),
-            new Knob("filmHeroAimFrac", () -> String.valueOf(filmHeroAimFrac), v -> filmHeroAimFrac = dblIn(v, 0, 1)));
+            new Knob("filmHeroAimFrac", () -> String.valueOf(filmHeroAimFrac), v -> filmHeroAimFrac = dblIn(v, 0, 1)),
+            new Knob("filmAerialEnabled", () -> String.valueOf(filmAerialEnabled), v -> filmAerialEnabled = boolIn(v)),
+            new Knob("filmAerialUntilHeightFrac", () -> String.valueOf(filmAerialUntilHeightFrac), v -> filmAerialUntilHeightFrac = dblIn(v, 0, 1)),
+            new Knob("filmAerialPitchDeg", () -> String.valueOf(filmAerialPitchDeg), v -> filmAerialPitchDeg = dblIn(v, 20, 85)),
+            new Knob("filmAerialMargin", () -> String.valueOf(filmAerialMargin), v -> filmAerialMargin = dblIn(v, 0.5, 4)),
+            new Knob("filmAerialTurns", () -> String.valueOf(filmAerialTurns), v -> filmAerialTurns = dblIn(v, 0, 4)));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {

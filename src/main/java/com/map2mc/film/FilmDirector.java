@@ -94,6 +94,38 @@ public final class FilmDirector {
     }
 
     /**
+     * High-oblique AERIAL establishing shot for the LOW-height phase: looks DOWN at the footprint (the
+     * leg/platform pattern is the subject) instead of seeing a wide-flat build as a distant strip on
+     * grass. Pure. Reuses the V2-1 width branch to frame the footprint, then reuses {@link Orbit#poseAt}.
+     *
+     * <ul>
+     *   <li>{@code camRadius = (horizontalRadius / tan(hFov/2))·margin} — the HORIZONTAL distance that
+     *       frames the footprint width (same as the V2-1 {@code dW} term).</li>
+     *   <li>{@code camY = max(baseY + camRadius·tan(pitchDeg), currentTop + clearance)} — the elevation
+     *       gives the requested high-oblique look, and the clamp guarantees the camera is ABOVE the
+     *       build top so it always looks DOWN on it (insurance for taller/thinner builds).</li>
+     *   <li>Aim at the footprint centre at base level {@code (cx, baseY, cz)} → a downward look.</li>
+     *   <li>{@code frac} rotates the azimuth slowly across the aerial phase (caller scales by turns).</li>
+     * </ul>
+     */
+    public static OrbitKeyframe aerialPose(Bounds fullBounds, double frac,
+                                           int aspectW, int aspectH, double baseFovDeg, double pitchDeg,
+                                           double margin, double currentTop, double clearance,
+                                           long renderMs, long buildMs) {
+        double cx = (fullBounds.minX() + fullBounds.maxX() + 1) / 2.0;
+        double cz = (fullBounds.minZ() + fullBounds.maxZ() + 1) / 2.0;
+        double baseY = fullBounds.minY();
+        double horizRadius = Math.max(1.0, fullBounds.horizontalRadius());
+
+        double tanV = Math.tan(Math.toRadians(baseFovDeg) / 2.0);
+        double tanH = ((double) aspectW / aspectH) * tanV;
+        double camRadius = Math.max(4.0, (horizRadius / tanH) * margin);
+        double camYByPitch = baseY + camRadius * Math.tan(Math.toRadians(pitchDeg));
+        double camY = Math.max(camYByPitch, currentTop + clearance);
+        return Orbit.poseAt(cx, cz, baseY, camRadius, camY, camY, frac, renderMs, buildMs);
+    }
+
+    /**
      * @param progress    build progress in [0,1] (the ONLY clock)
      * @param frontier    the construction front (aim target)
      * @param params      orbit framing (cx, cz, radius) — derived once from the build's bounds

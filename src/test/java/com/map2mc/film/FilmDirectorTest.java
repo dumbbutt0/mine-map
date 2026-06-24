@@ -158,6 +158,48 @@ class FilmDirectorTest {
                 FilmDirector.framingForAspect(full, 50, 77, 9, 16, 70, 0.15, 1.10, 0.35, 0.85).radius(), EPS);
     }
 
+    // ── Aerial establishing shot (low-height phase) ──────────────────────────────────────────────
+
+    @Test
+    void aerialLooksDownFromAboveTheBuild() {
+        // Eiffel footprint, early/low build (top = base+20); landscape 16:9 (the recording aspect).
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        int w = 16, h = 9;
+        double fov = 70, pitch = 55, margin = 1.10, clearance = 8, currentTop = -40;
+        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, w, h, fov, pitch, margin, currentTop, clearance, 0, 0);
+
+        double cx = 43, cz = 42.5; // footprint centre
+        double tanH = ((double) w / h) * Math.tan(Math.toRadians(fov) / 2.0);
+        double camRadius = full.horizontalRadius() / tanH * margin;
+
+        assertEquals(camRadius, Math.hypot(k.x() - cx, k.z() - cz), 1e-3, "framed to the footprint width");
+        assertTrue(k.y() > currentTop, "aerial camera sits above the current build top");
+        assertTrue(k.pitch() > 0, "aerial shot looks DOWN (positive pitch), got " + k.pitch());
+        assertEquals(pitch, k.pitch(), 0.5, "look elevation ≈ filmAerialPitchDeg");
+    }
+
+    @Test
+    void aerialClampKeepsCameraAboveATallLowPhaseBuild() {
+        // Narrow footprint where width-framing alone would sit below a tall-ish low-phase build:
+        // the clearance clamp must still put the camera above the current top.
+        Bounds full = new Bounds(0, 0, 0, 19, 200, 19);
+        double currentTop = 60, clearance = 8;
+        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, currentTop, clearance, 0, 0);
+        assertTrue(k.y() >= currentTop + clearance - 1e-6, "clamp keeps the camera above the build top");
+        assertTrue(k.pitch() > 0, "still looks down");
+    }
+
+    @Test
+    void aerialAzimuthRotatesWithFrac() {
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        OrbitKeyframe a = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, -40, 8, 0, 0);
+        OrbitKeyframe b = FilmDirector.aerialPose(full, 0.25, 16, 9, 70, 55, 1.10, -40, 8, 0, 0);
+        double cx = 43, cz = 42.5;
+        assertEquals(Math.hypot(a.x() - cx, a.z() - cz), Math.hypot(b.x() - cx, b.z() - cz), 1e-3,
+                "same framing radius");
+        assertTrue(Math.hypot(a.x() - b.x(), a.z() - b.z()) > 1.0, "azimuth advanced with frac");
+    }
+
     @Test
     void poseIsContinuousInProgress() {
         OrbitKeyframe prev = null;
