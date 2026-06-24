@@ -1,0 +1,9 @@
+# Offline vision scorer (tools/vision/score.py). All already present in the dev environment used to
+# build this; pinned here for reproducibility. CPU-only works; a small GPU is used if available.
+# The LAION aesthetic head (sac+logos+ava1-l14-linearMSE.pth) is downloaded at first run and cached
+# under ~/.cache/map2mc-vision/. No paid APIs.
+torch>=2.2
+transformers>=4.40
+pillow>=10
+numpy>=1.26
+# ffmpeg/ffprobe must be on PATH (or set MAP2MC_FFMPEG) for --video frame sampling.

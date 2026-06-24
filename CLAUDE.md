@@ -250,6 +250,31 @@ three-independent-layers model): see [`RECORDING.md`](RECORDING.md). Build the p
 `build/libs/map2mc-<version>.jar` (not `-sources`/`-dev`) and run the recording client on a native
 OS, not WSLg.
 
+## Offline vision scorer (`tools/vision/score.py`) — MEASUREMENT only, NOT in the mod
+A standalone Python tool that scores a rendered take with LOCAL vision models and emits a JSON
+scorecard. Geometry answers facts (the mod has those); this answers TASTE. It runs offline on finished
+renders only — nothing here touches the mod, the camera, or any runtime loop. Closed-loop shot
+selection is a LATER task and only if these numbers earn the user's trust.
+```bash
+python3 tools/vision/score.py --video take.mp4 --out scorecard.json [--fps 1.5]
+python3 tools/vision/score.py --video take.mp4 --style ref_frames/ --out scorecard.json  # + style-match
+```
+- **aesthetic** per frame: LAION aesthetic head on a CLIP ViT-L/14 embedding (~1–10). **style_match**:
+  cosine similarity to the `--style` reference frames (the target look; the USER supplies them — bundle
+  no copyrighted refs). **dead_color**: a cheap edge/colour heuristic flagging "empty" frames.
+- Backbone via `transformers` (CLIP-L/14); aesthetic head auto-downloaded to `~/.cache/map2mc-vision/`.
+  GPU if usable, else CPU (the dev box fell back to CPU — old CUDA driver). Degrades gracefully: if the
+  models can't load it runs the heuristic and lists missing scores in `summary.scores_missing` (never
+  crashes). No paid APIs. Deps in `tools/vision/requirements.txt` (all already present here).
+- **Scorecard:** `{ video, model_versions, params, frames:[{t,aesthetic,style_match,edge_density,flags}],
+  segments:[{t_start,t_end,aesthetic,style_match,dead_frac,flags}], summary:{mean_aesthetic,
+  mean_style_match, worst_segments, dead_spans, off_style_spans, scores_missing} }`.
+- **Trust caveat (measured, not assumed):** on the known dead-first-half take the aesthetic correctly
+  orders dead < hero (4.57 vs 5.15, monotonic per-segment) but the gap is MODEST, and the edge/colour
+  dead-heuristic does NOT separate grass-texture "dead" frames from the tower (similar edge density).
+  Treat the aesthetic as a weak directional signal pending the user's own eyeball check; don't build a
+  feedback loop on it yet.
+
 ## Conventions
 - Base package `com.map2mc`; one logger `Map2mc.LOGGER` (`org.slf4j`, name `map2mc`).
 - **All block placement + the tick loop run on the server thread.** Heavy I/O (`.schem` parsing)
