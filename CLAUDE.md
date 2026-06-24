@@ -109,8 +109,17 @@ never owns the camera or recording.
     `camRadius = dW·margin`, `camY = max(camRadius·tan(pitch), top+clearance)` so it's always above the
     build, drifting azimuth `filmAerialTurns`); then a one-time **CUT** (`f.lastPose=null` → `prev==cur`,
     no lerp) hands off to the unchanged V2-1 rising orbit. Knobs: `filmAerialEnabled` (false = pure V2-1),
-    `filmAerialUntilHeightFrac` (0.22), `filmAerialPitchDeg` (55), `filmAerialMargin`, `filmAerialTurns`.
+    `filmAerialPitchDeg` (50), `filmAerialMargin`, `filmAerialTurns`.
     This is an early hand-wiring of V2-2/V2-3's `establishing`+`rising_orbit` shots — fold in when they land.
+  - **Handoff = area-profile transition AND min-height** (`film/AreaProfile`, the early slice of the V2-2
+    analyzer): the cut fires once BOTH (a) the build has NARROWED past its wide base — the precomputed
+    PROGRESS where the schematic's per-layer block count drops below `filmTransitionFrac`×max (so we
+    never cut mid-floor; `−1` = no clear transition → height alone) AND (b) it has risen to
+    `filmAerialUntilHeightFrac·finalHeight` ("something to look UP at"). For the thin-foundation Eiffel
+    the height drives it (cut at progress ~0.41, legs emerged) with the structural check non-binding;
+    for a thick base the structural check holds the overhead until the floor is done. (An earlier
+    motion-based "verticality" detector was tried and reverted — the Eiffel's legs are simultaneously
+    climbing AND horizontally spread, so front-motion can't separate them; the offline area profile can.)
   - `/map2mc film <path> [pos] [rotation] [radius] [duration]` (+ `film stop`).
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)

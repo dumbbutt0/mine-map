@@ -49,14 +49,15 @@ public final class DirectorCamera {
         final float startYaw;
         final float startPitch;
         final long buildMs;
+        final double handoffProgress; // area-profile aerial→orbit cut point; <0 = defer to height
         DirectorState.Pose lastPose;
         double maxFrontierY = Double.NEGATIVE_INFINITY; // monotonic clamp so the camera never dips
-        boolean cutToOrbit = false;   // fired once when the aerial→orbit height threshold is crossed
+        boolean cutToOrbit = false;   // fired once when the aerial→orbit handoff is crossed
         int logTicks = 0;
 
         Film(UUID player, ServerWorld world, BuildJob job, Bounds fullBounds, int radiusOverride,
              int window, Vec3d fallbackAim, GameMode prevMode, Vec3d startPos, float startYaw,
-             float startPitch, long buildMs) {
+             float startPitch, long buildMs, double handoffProgress) {
             this.player = player;
             this.world = world;
             this.worldKey = world.getRegistryKey();
@@ -70,6 +71,7 @@ public final class DirectorCamera {
             this.startYaw = startYaw;
             this.startPitch = startPitch;
             this.buildMs = buildMs;
+            this.handoffProgress = handoffProgress;
         }
     }
 
@@ -88,7 +90,7 @@ public final class DirectorCamera {
      */
     public static void start(ServerWorld world, ServerPlayerEntity player, BuildJob job,
                              Bounds fullBounds, int radiusOverride, int window, Vec3d fallbackAim,
-                             int durationSecs) {
+                             int durationSecs, double handoffProgress) {
         RegistryKey<World> key = world.getRegistryKey();
         Film existing = ACTIVE.remove(key);
         UUID pid = null;
@@ -109,7 +111,7 @@ public final class DirectorCamera {
             player.changeGameMode(GameMode.SPECTATOR);
         }
         Film f = new Film(pid, world, job, fullBounds, radiusOverride, Math.max(1, window), fallbackAim,
-                prev, startPos, startYaw, startPitch, Math.max(1, durationSecs) * 1000L);
+                prev, startPos, startYaw, startPitch, Math.max(1, durationSecs) * 1000L, handoffProgress);
         ACTIVE.put(key, f);
         tickFilm(player, f); // cut to the start pose
     }
@@ -190,8 +192,17 @@ public final class DirectorCamera {
         double baseY = f.fullBounds.minY();
         double finalHeight = Math.max(1.0, f.fullBounds.maxY() - baseY);
         double currentHeight = clampedTop - baseY;
-        double threshold = Map2mcConfig.filmAerialUntilHeightFrac * finalHeight;
-        boolean aerial = Map2mcConfig.filmAerialEnabled && currentHeight < threshold;
+        double heightThreshold = Map2mcConfig.filmAerialUntilHeightFrac * finalHeight;
+
+        // Handoff aerial→orbit only once BOTH are true: the build has NARROWED past its wide base
+        // (structural — the area-profile handoffProgress; so we never cut mid-floor) AND it has RISEN
+        // enough that there's something to look UP at (height). For a thin-foundation build like the
+        // Eiffel the height drives it; for a thick base the structural check holds the overhead until
+        // the floor is done. (handoffProgress < 0 = no clear transition → height alone.) Both monotonic
+        // → the cut fires exactly once.
+        boolean structuralPassed = f.handoffProgress < 0 || progress >= f.handoffProgress;
+        boolean heightReached = currentHeight >= heightThreshold;
+        boolean aerial = Map2mcConfig.filmAerialEnabled && !(structuralPassed && heightReached);
 
         final OrbitKeyframe k;
         final String phase;
@@ -201,7 +212,7 @@ public final class DirectorCamera {
             // Low phase: a high-oblique aerial shot looking DOWN at the footprint (the legs/platform
             // pattern is the subject), drifting its azimuth slowly across the phase.
             double aerialFrac = Map2mcConfig.filmAerialTurns
-                    * Math.min(1.0, Math.max(0.0, currentHeight / Math.max(1.0, threshold)));
+                    * Math.min(1.0, Math.max(0.0, currentHeight / Math.max(1.0, heightThreshold)));
             k = FilmDirector.aerialPose(f.fullBounds, aerialFrac,
                     Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
                     Map2mcConfig.filmAerialPitchDeg, Map2mcConfig.filmAerialMargin,
@@ -243,9 +254,10 @@ public final class DirectorCamera {
 
         if (f.logTicks++ % 10 == 0 || f.job.isDone()) {
             Map2mc.LOGGER.info(
-                    "[map2mc][director] phase={} progress={} placed={}/{} topY={} count={} radius={} "
+                    "[map2mc][director] phase={} hp={} progress={} placed={}/{} topY={} count={} radius={} "
                             + "camPose=({},{},{}) yaw={} pitch={} aim=({},{},{})",
-                    phase, String.format("%.3f", progress), f.job.placed(), f.job.total(),
+                    phase, String.format("%.3f", f.handoffProgress),
+                    String.format("%.3f", progress), f.job.placed(), f.job.total(),
                     String.format("%.1f", clampedTop), raw.count(),
                     String.format("%.1f", logRadius),
                     String.format("%.2f", cur.x()), String.format("%.2f", cur.y()), String.format("%.2f", cur.z()),

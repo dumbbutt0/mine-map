@@ -81,8 +81,9 @@ public final class Map2mcConfig {
     /** Aerial establishing shot for the low phase (false = pure V2-1 rising orbit). */
     public static volatile boolean filmAerialEnabled = true;
 
-    /** Switch from the aerial shot to the rising orbit at this fraction of FINAL height. */
-    public static volatile double filmAerialUntilHeightFrac = 0.22;
+    /** Min height (fraction of FINAL height) before the aerial→orbit cut — "something to look UP at".
+     *  Combined with the area-profile transition (cut once BOTH the base is done AND this is reached). */
+    public static volatile double filmAerialUntilHeightFrac = 0.12;
 
     /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). Eased from 55
      *  to keep the steep-pitch-pan horizon calmer; lower further (or drop filmAerialTurns) live to taste. */
@@ -93,6 +94,12 @@ public final class Map2mcConfig {
 
     /** Azimuth rotation (turns) across the aerial phase, so it drifts rather than sitting static. */
     public static volatile double filmAerialTurns = 0.30;
+
+    /** Area-profile handoff: a layer counts as "narrowed" (base→vertical) below this fraction of the
+     *  widest layer. The aerial→orbit cut fires at the cumulative-block progress of that transition;
+     *  filmAerialUntilHeightFrac stays a height backstop (and the sole trigger when there's no clear
+     *  transition). Lower → only a sharper narrowing counts; the transition Y itself is set by the build. */
+    public static volatile double filmTransitionFrac = 0.40;
 
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
@@ -163,7 +170,8 @@ public final class Map2mcConfig {
             new Knob("filmAerialUntilHeightFrac", () -> String.valueOf(filmAerialUntilHeightFrac), v -> filmAerialUntilHeightFrac = dblIn(v, 0, 1)),
             new Knob("filmAerialPitchDeg", () -> String.valueOf(filmAerialPitchDeg), v -> filmAerialPitchDeg = dblIn(v, 20, 85)),
             new Knob("filmAerialMargin", () -> String.valueOf(filmAerialMargin), v -> filmAerialMargin = dblIn(v, 0.5, 4)),
-            new Knob("filmAerialTurns", () -> String.valueOf(filmAerialTurns), v -> filmAerialTurns = dblIn(v, 0, 4)));
+            new Knob("filmAerialTurns", () -> String.valueOf(filmAerialTurns), v -> filmAerialTurns = dblIn(v, 0, 4)),
+            new Knob("filmTransitionFrac", () -> String.valueOf(filmTransitionFrac), v -> filmTransitionFrac = dblIn(v, 0.01, 1)));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {
