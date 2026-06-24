@@ -58,3 +58,28 @@ java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
 }
+
+// ── Auto-deploy the built mod jar into a local Minecraft mods/ folder ─────────────────────────────
+// A WSL→Windows symlink isn't followed by the Windows Java launcher, so instead: set `map2mcModsDir`
+// in ~/.gradle/gradle.properties (or the MAP2MC_MODS_DIR env var) to your mods folder, and every
+// `./gradlew build` (or just `./gradlew deployMod`) copies the remapped jar there — no manual move.
+// Unset (fresh clone / CI) → the task skips, so the build stays portable.
+def map2mcModsDir = (project.findProperty('map2mcModsDir') ?: System.getenv('MAP2MC_MODS_DIR'))?.toString()
+
+tasks.register('deployMod', Copy) {
+    description = 'Copy the remapped mod jar into the local Minecraft mods/ folder (set map2mcModsDir).'
+    group = 'fabric'
+    dependsOn tasks.named('remapJar')
+    from tasks.named('remapJar')   // the production (remapped) jar only — not -sources/-dev
+    into map2mcModsDir ?: "${layout.buildDirectory.get().asFile}/deploy-skipped"
+    onlyIf {
+        boolean configured = map2mcModsDir != null && !map2mcModsDir.isEmpty()
+        if (!configured) {
+            logger.lifecycle('map2mc: deployMod skipped — set map2mcModsDir in ~/.gradle/gradle.properties to auto-install.')
+        }
+        configured
+    }
+    doLast { logger.lifecycle("map2mc: deployed mod jar -> ${map2mcModsDir}") }
+}
+
+tasks.named('build') { finalizedBy 'deployMod' }

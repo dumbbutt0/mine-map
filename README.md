@@ -23,10 +23,16 @@ Requires **JDK 21** (the Gradle wrapper bootstraps Gradle 9). `JAVA_HOME` must p
 
 ```bash
 export JAVA_HOME=/path/to/jdk-21
-./gradlew build        # → build/libs/map2mc-<version>.jar  (drop into your mods/ folder)
+./gradlew build        # → build/libs/map2mc-<version>.jar
 ./gradlew runClient    # dev client
 ./gradlew test         # unit tests
 ```
+
+**Auto-install to your mods folder** (so you never copy the jar by hand): set `map2mcModsDir` in
+`~/.gradle/gradle.properties` (or the `MAP2MC_MODS_DIR` env var) to your Minecraft `mods/` folder.
+Then `./gradlew build` — or the faster `./gradlew deployMod` (no tests) — copies the remapped jar
+there automatically. If unset, the deploy step simply skips. (On WSL this writes to the Windows
+`mods/` under `/mnt/c/...`; a WSL→Windows symlink does **not** work — the launcher can't follow it.)
 
 See **[CLAUDE.md](CLAUDE.md)** for the architecture, the `.schem` format notes, the full command
 list, and the verified toolchain (Fabric 1.21.11 / Loom 1.17 / Yarn / Gradle 9).
