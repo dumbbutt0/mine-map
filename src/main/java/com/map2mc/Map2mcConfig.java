@@ -84,8 +84,9 @@ public final class Map2mcConfig {
     /** Switch from the aerial shot to the rising orbit at this fraction of FINAL height. */
     public static volatile double filmAerialUntilHeightFrac = 0.22;
 
-    /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). */
-    public static volatile double filmAerialPitchDeg = 55.0;
+    /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). Eased from 55
+     *  to keep the steep-pitch-pan horizon calmer; lower further (or drop filmAerialTurns) live to taste. */
+    public static volatile double filmAerialPitchDeg = 50.0;
 
     /** Zoom-out multiplier on the aerial footprint framing. */
     public static volatile double filmAerialMargin = 1.10;

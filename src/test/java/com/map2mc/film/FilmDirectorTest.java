@@ -201,6 +201,17 @@ class FilmDirectorTest {
     }
 
     @Test
+    void aerialPoseHasNoRoll() {
+        // The canted overhead horizon is steep-pitch-pan geometry, NOT camera roll — guarantee roll=0
+        // so nobody "fixes" the cant by introducing actual roll.
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        for (double frac = 0.0; frac <= 1.0; frac += 0.2) {
+            OrbitKeyframe k = FilmDirector.aerialPose(full, frac, 16, 9, 70, 50, 1.10, -40, 8, 0, 0);
+            assertEquals(0f, k.roll(), 0f, "aerial pose carries no roll");
+        }
+    }
+
+    @Test
     void poseIsContinuousInProgress() {
         OrbitKeyframe prev = null;
         for (int i = 0; i <= 1000; i++) {

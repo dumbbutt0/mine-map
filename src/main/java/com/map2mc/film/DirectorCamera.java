@@ -45,6 +45,9 @@ public final class DirectorCamera {
         final int window;
         final Vec3d fallbackAim;
         final GameMode prevMode;      // only meaningful when player != null
+        final Vec3d startPos;         // player pose at film start — restored on stop/complete (no fall death)
+        final float startYaw;
+        final float startPitch;
         final long buildMs;
         DirectorState.Pose lastPose;
         double maxFrontierY = Double.NEGATIVE_INFINITY; // monotonic clamp so the camera never dips
@@ -52,7 +55,8 @@ public final class DirectorCamera {
         int logTicks = 0;
 
         Film(UUID player, ServerWorld world, BuildJob job, Bounds fullBounds, int radiusOverride,
-             int window, Vec3d fallbackAim, GameMode prevMode, long buildMs) {
+             int window, Vec3d fallbackAim, GameMode prevMode, Vec3d startPos, float startYaw,
+             float startPitch, long buildMs) {
             this.player = player;
             this.world = world;
             this.worldKey = world.getRegistryKey();
@@ -62,6 +66,9 @@ public final class DirectorCamera {
             this.window = window;
             this.fallbackAim = fallbackAim;
             this.prevMode = prevMode;
+            this.startPos = startPos;
+            this.startYaw = startYaw;
+            this.startPitch = startPitch;
             this.buildMs = buildMs;
         }
     }
@@ -86,19 +93,28 @@ public final class DirectorCamera {
         Film existing = ACTIVE.remove(key);
         UUID pid = null;
         GameMode prev = GameMode.SPECTATOR;
+        Vec3d startPos = null;
+        float startYaw = 0f;
+        float startPitch = 0f;
         if (player != null) {
             pid = player.getUuid();
-            prev = existing != null && existing.player != null
-                    ? existing.prevMode : player.interactionManager.getGameMode();
+            // Remember the player's pre-film pose so restoring their gamemode on stop/complete returns
+            // them to the GROUND instead of dropping them from the camera's altitude (the fall-death
+            // bug). On a re-film, keep the ORIGINAL pose (don't capture the spectator camera position).
+            boolean carry = existing != null && existing.player != null;
+            prev = carry ? existing.prevMode : player.interactionManager.getGameMode();
+            startPos = carry ? existing.startPos : player.getEntityPos();
+            startYaw = carry ? existing.startYaw : player.getYaw();
+            startPitch = carry ? existing.startPitch : player.getPitch();
             player.changeGameMode(GameMode.SPECTATOR);
         }
         Film f = new Film(pid, world, job, fullBounds, radiusOverride, Math.max(1, window), fallbackAim,
-                prev, Math.max(1, durationSecs) * 1000L);
+                prev, startPos, startYaw, startPitch, Math.max(1, durationSecs) * 1000L);
         ACTIVE.put(key, f);
         tickFilm(player, f); // cut to the start pose
     }
 
-    /** Stop filming in {@code world}; restore gamemode if a player was flying. */
+    /** Stop filming in {@code world}; safely return the flying player and restore their gamemode. */
     public static boolean stop(ServerWorld world, MinecraftServer server) {
         Film f = ACTIVE.remove(world.getRegistryKey());
         if (f == null) {
@@ -107,13 +123,28 @@ public final class DirectorCamera {
         if (f.player != null && server != null) {
             ServerPlayerEntity p = server.getPlayerManager().getPlayer(f.player);
             if (p != null) {
-                p.changeGameMode(f.prevMode);
+                restorePlayer(p, f);
             }
         }
         if (ACTIVE.isEmpty()) {
             DirectorState.reset();
         }
         return true;
+    }
+
+    /**
+     * End the shot for {@code p}: teleport them back to their pre-film spot on the GROUND, clear fall
+     * distance, THEN restore their gamemode. Order matters — landing them before leaving spectator is
+     * what stops the camera's altitude from becoming a lethal fall the instant survival is restored.
+     */
+    private static void restorePlayer(ServerPlayerEntity p, Film f) {
+        if (f.startPos != null) {
+            p.teleport(f.world, f.startPos.x, f.startPos.y, f.startPos.z,
+                    EnumSet.noneOf(PositionFlag.class), f.startYaw, f.startPitch, false);
+        }
+        p.fallDistance = 0; // the teleport already resets it; explicit belt-and-suspenders
+        p.setOnGround(true);
+        p.changeGameMode(f.prevMode);
     }
 
     public static void onEndServerTick(MinecraftServer server) {
@@ -131,7 +162,7 @@ public final class DirectorCamera {
             tickFilm(p, f);
             if (f.job.isDone()) {
                 if (p != null) {
-                    p.changeGameMode(f.prevMode); // the shot ends exactly when the build does
+                    restorePlayer(p, f); // the shot ends exactly when the build does — land them safely
                 }
                 Map2mc.LOGGER.info("[map2mc][director] film complete: {}", f.job.label());
                 it.remove();

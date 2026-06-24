@@ -67,7 +67,12 @@ never owns the camera or recording.
     pose from `FilmDirector.directorPose(progress, frontier, params, …)` (pure, unit-tested),
     teleports the spectator player there (chunk loading), and publishes prev+cur pose to a
     `volatile film/DirectorState`. A console/headless `film` runs LOG-ONLY (no camera) — the
-    headless gate's path.
+    headless gate's path. **Safe restore:** the `Film` remembers the player's pre-film pose; on stop
+    AND on completion `restorePlayer` teleports them back to that on-the-ground spot (+ clears fall
+    distance) BEFORE leaving spectator — otherwise restoring survival at the camera's altitude drops
+    them to their death (the old "fell from a high place" ending). The overhead aerial cant is
+    steep-pitch-pan geometry, NOT camera roll (the pose's roll is 0); ease `filmAerialPitchDeg`/
+    `filmAerialTurns` to calm it.
   - **Client smoothing** (`client/mixin/CameraUpdateMixin` — the mod's FIRST mixin): overrides
     `Camera.update` at `@At("TAIL")` each render frame, lerping prev→cur by the partial-tick, so
     motion is smooth at render fps, not 20 Hz teleport judder. `client/Map2mcClient`
