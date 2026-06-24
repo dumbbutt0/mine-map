@@ -209,24 +209,17 @@ public final class Map2mcCommands {
                                                         IntegerArgumentType.getInteger(ctx, "keyframes"), true)))))))
                 // ── film <path> [pos] [rotation] [radius] [duration] — build + fly the director ─
                 // No coords ⇒ in front of the player, facing them; with pos ⇒ center-on-ground.
+                // pos accepts vanilla ~ / ^; the trailing [rotation] [radius] [duration] come from a
+                // greedy string so they too accept ~ (Brigadier word/int args can't read a bare ~).
                 .then(literal("film")
                         .then(literal("stop").executes(Map2mcCommands::filmStop))
                         .then(argument("path", StringArgumentType.string())
-                                .executes(ctx -> filmDefault(ctx, -1, -1))
+                                .executes(Map2mcCommands::filmDefault)
                                 .then(argument("pos", Vec3ArgumentType.vec3(false))
-                                        .executes(ctx -> filmPos(ctx, 0, -1, -1))
-                                        .then(argument("rotation", IntegerArgumentType.integer(0, 270))
-                                                .executes(ctx -> filmPos(ctx,
-                                                        IntegerArgumentType.getInteger(ctx, "rotation"), -1, -1))
-                                                .then(argument("radius", IntegerArgumentType.integer(1, 4096))
-                                                        .executes(ctx -> filmPos(ctx,
-                                                                IntegerArgumentType.getInteger(ctx, "rotation"),
-                                                                IntegerArgumentType.getInteger(ctx, "radius"), -1))
-                                                        .then(argument("duration", IntegerArgumentType.integer(1, 3600))
-                                                                .executes(ctx -> filmPos(ctx,
-                                                                        IntegerArgumentType.getInteger(ctx, "rotation"),
-                                                                        IntegerArgumentType.getInteger(ctx, "radius"),
-                                                                        IntegerArgumentType.getInteger(ctx, "duration")))))))))
+                                        .executes(ctx -> filmAt(ctx, ""))
+                                        .then(argument("opts", StringArgumentType.greedyString())
+                                                .executes(ctx -> filmAt(ctx,
+                                                        StringArgumentType.getString(ctx, "opts")))))))
                 // ── undo — revert the most recent build ───────────────────────────────────────
                 .then(literal("undo").executes(Map2mcCommands::undo))
                 // ── clear <radius> — wipe a cube around you (undoable) ────────────────────────
@@ -339,29 +332,49 @@ public final class Map2mcCommands {
 
     // ── film (Phase A director camera) ─────────────────────────────────────────────────────────
 
-    /** {@code /map2mc film <file>} no coords: build in front of the player, fly the director. */
-    private static int filmDefault(CommandContext<ServerCommandSource> ctx, int radius, int durationSecs) {
+    /** {@code /map2mc film <file>} no coords: build in front of the player, facing them, fly the director. */
+    private static int filmDefault(CommandContext<ServerCommandSource> ctx) {
         ServerCommandSource src = ctx.getSource();
         SourcePose pose = poseOf(src);
         BlockPos anchor = BlockPos.ofFloored(
                 LookMath.frontOfLookHorizontal(pose, Map2mcConfig.frontDistance));
         Rotation4 rot = LookMath.facingRotation(pose.yaw());
         return runFilm(src, StringArgumentType.getString(ctx, "path"),
-                anchor, AnchorMode.CENTER_GROUND, rot, radius, durationSecs);
+                anchor, AnchorMode.CENTER_GROUND, rot, -1, -1);
     }
 
-    private static int filmPos(CommandContext<ServerCommandSource> ctx, int rotationDeg, int radius, int durationSecs) {
+    /**
+     * {@code /map2mc film <path> <x y z> [rotation] [radius] [duration]}. {@code <x y z>} accepts
+     * vanilla {@code ~}/{@code ^} (via {@code Vec3ArgumentType}). The trailing options, parsed here
+     * from a greedy string so a bare {@code ~} is read literally:
+     * <ul>
+     *   <li>{@code rotation}: {@code ~} = face the player (the default), else {@code 0|90|180|270}</li>
+     *   <li>{@code radius}: {@code ~} = dynamic current-extent framing (the default), else a number</li>
+     *   <li>{@code duration}: {@code ~} = the current pace (the default), else seconds</li>
+     * </ul>
+     */
+    private static int filmAt(CommandContext<ServerCommandSource> ctx, String opts) {
         ServerCommandSource src = ctx.getSource();
+        SourcePose pose = poseOf(src);
+        String[] t = opts.isBlank() ? new String[0] : opts.trim().split("\\s+");
+        String rotS = t.length > 0 ? t[0] : "~"; // default: face the player (matches the no-coord case)
+        String radS = t.length > 1 ? t[1] : "~"; // default: dynamic framing
+        String durS = t.length > 2 ? t[2] : "~"; // default: current pace
         final Rotation4 rot;
+        final int radius;
+        final int duration;
         try {
-            rot = Rotation4.fromDegrees(rotationDeg);
-        } catch (IllegalArgumentException e) {
-            src.sendError(Text.literal("map2mc: " + e.getMessage()));
+            rot = "~".equals(rotS) ? LookMath.facingRotation(pose.yaw()) : Rotation4.fromDegrees(Integer.parseInt(rotS));
+            radius = "~".equals(radS) ? -1 : Integer.parseInt(radS);
+            duration = "~".equals(durS) ? -1 : Integer.parseInt(durS);
+        } catch (IllegalArgumentException e) { // NumberFormatException is a subclass
+            src.sendError(Text.literal(
+                    "map2mc: film <path> [x y z] [rotation ~|0|90|180|270] [radius ~|n] [duration ~|n]"));
             return 0;
         }
         BlockPos anchor = BlockPos.ofFloored(Vec3ArgumentType.getVec3(ctx, "pos"));
         return runFilm(src, StringArgumentType.getString(ctx, "path"),
-                anchor, AnchorMode.CENTER_GROUND, rot, radius, durationSecs);
+                anchor, AnchorMode.CENTER_GROUND, rot, radius, duration);
     }
 
     /**

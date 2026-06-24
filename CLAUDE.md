@@ -159,7 +159,10 @@ Mappings: **Yarn** (per the brief). All Minecraft API names in this repo are Yar
 `orbit [radius] [duration] [keyframes] [fly]` / `orbit stop` (write a ReplayMod keyframe table around
 the last build; optional mod-driven spectator fly) ·
 `film <path> [pos] [rotation] [radius] [duration]` / `film stop` (build it AND auto-fly the
-frontier-tracking director camera; from a player = live fly, from console = log-only).
+frontier-tracking director camera; from a player = live fly, from console = log-only). Every film
+arg accepts `~`: `pos` → `~`/`^` (vanilla); `rotation` → `~` (face you) or 0/90/180/270; `radius` →
+`~` (dynamic) or a number; `duration` → `~` (current pace) or seconds. (Trailing args are parsed
+from a greedy string because Brigadier int/word args can't read a bare `~`.)
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 
 ## Status: Phases 0–3 + Phase A complete and verified
