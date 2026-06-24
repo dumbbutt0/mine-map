@@ -175,6 +175,13 @@ arg accepts `~`: `pos` → `~`/`^` (vanilla); `rotation` → `~` (face you) or 0
 `~` (dynamic) or a number; `duration` → `~` (current pace) or seconds. (Trailing args are parsed
 from a greedy string because Brigadier int/word args can't read a bare `~`.)
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
+`get` / `set <key> <value>` — live-tune the `Map2mcConfig` knobs while dialing in the framing (no
+rebuild): `get` lists every knob + current value; `set` validates against a sane range, assigns, and
+echoes the parsed value (out-of-range / bad input fails loudly). The V2-1 framing knobs —
+`filmBaseFovDeg` (30–110, match your recording FOV first), `filmFrameMargin`, `filmHeadroomFrac`,
+`filmHeroCamFrac`, `filmHeroAimFrac`, `filmAspectW/H` — are the ones to turn. **Runtime-only:** values
+reset on relaunch, so once a look is dialed in, bake the numbers into the `Map2mcConfig` defaults (a
+persisted config file is the cleaner long-term answer; defaults-bake-in is fine for now).
 
 ## Status: Phases 0–3 + Phase A complete and verified
 - P0: scaffold + ping (headless server smoke).

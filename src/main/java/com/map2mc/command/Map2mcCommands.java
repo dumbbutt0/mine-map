@@ -220,6 +220,22 @@ public final class Map2mcCommands {
                                         .then(argument("opts", StringArgumentType.greedyString())
                                                 .executes(ctx -> filmAt(ctx,
                                                         StringArgumentType.getString(ctx, "opts")))))))
+                // ── get / set <key> <value> — live-tune the framing knobs (no rebuild) ─────────
+                .then(literal("get").executes(Map2mcCommands::configList))
+                .then(literal("set")
+                        .executes(Map2mcCommands::configList) // no args ⇒ list all (like get)
+                        .then(argument("key", StringArgumentType.word())
+                                .suggests((c, b) -> {
+                                    String rem = b.getRemaining().toLowerCase(java.util.Locale.ROOT);
+                                    Map2mcConfig.keys().forEach(k -> {
+                                        if (k.toLowerCase(java.util.Locale.ROOT).startsWith(rem)) {
+                                            b.suggest(k);
+                                        }
+                                    });
+                                    return b.buildFuture();
+                                })
+                                .then(argument("value", StringArgumentType.word())
+                                        .executes(Map2mcCommands::configSet))))
                 // ── undo — revert the most recent build ───────────────────────────────────────
                 .then(literal("undo").executes(Map2mcCommands::undo))
                 // ── clear <radius> — wipe a cube around you (undoable) ────────────────────────
@@ -422,6 +438,35 @@ public final class Map2mcCommands {
         src.sendFeedback(() -> Text.literal(
                 ok ? "map2mc: film stopped (build continues)" : "map2mc: not filming"), false);
         return ok ? 1 : 0;
+    }
+
+    // ── config (live tuning) ───────────────────────────────────────────────────────────────────
+
+    /** {@code /map2mc get} (and {@code /map2mc set} with no args): list every knob + current value. */
+    private static int configList(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        src.sendFeedback(() -> Text.literal("map2mc config (runtime-only — resets on relaunch):"), false);
+        for (String line : Map2mcConfig.describe()) {
+            src.sendFeedback(() -> Text.literal("  " + line), false);
+        }
+        return 1;
+    }
+
+    /** {@code /map2mc set <key> <value>}: validate + assign one knob, echo the stored value. */
+    private static int configSet(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        String key = StringArgumentType.getString(ctx, "key");
+        String value = StringArgumentType.getString(ctx, "value");
+        try {
+            String stored = Map2mcConfig.set(key, value);
+            src.sendFeedback(() -> Text.literal(
+                    "map2mc: " + key + " = " + stored + "  (runtime-only; /map2mc get lists all)"), false);
+            return 1;
+        } catch (IllegalArgumentException e) {
+            src.sendError(Text.literal("map2mc set '" + key + "': " + e.getMessage()
+                    + "  — keys: " + String.join(", ", Map2mcConfig.keys())));
+            return 0;
+        }
     }
 
     // ── preview ──────────────────────────────────────────────────────────────────────────────
