@@ -72,6 +72,27 @@ class FilmDirectorTest {
     }
 
     @Test
+    void framingRadiusGrowsWithBuiltHeight() {
+        // Eiffel-ish footprint 86×85, base at y=-60.
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        double rLow = FilmDirector.framingFor(full, -55, 0, 2.0).radius();  // just above the base
+        double rMid = FilmDirector.framingFor(full, 50, 0, 2.0).radius();
+        double rHigh = FilmDirector.framingFor(full, 160, 0, 2.0).radius(); // near the top
+        assertTrue(rLow < rMid && rMid < rHigh,
+                "radius must grow as the build gets taller: " + rLow + " < " + rMid + " < " + rHigh);
+        // orbit centre is the full footprint centre — constant regardless of built height
+        assertEquals(FilmDirector.framingFor(full, 0, 0, 2.0).cx(),
+                FilmDirector.framingFor(full, 160, 0, 2.0).cx(), EPS);
+    }
+
+    @Test
+    void framingRadiusOverridePins() {
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        assertEquals(99.0, FilmDirector.framingFor(full, -55, 99, 2.0).radius(), EPS);
+        assertEquals(99.0, FilmDirector.framingFor(full, 160, 99, 2.0).radius(), EPS, "override pins radius");
+    }
+
+    @Test
     void poseIsContinuousInProgress() {
         OrbitKeyframe prev = null;
         for (int i = 0; i <= 1000; i++) {

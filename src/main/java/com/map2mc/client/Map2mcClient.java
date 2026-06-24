@@ -1,5 +1,6 @@
 package com.map2mc.client;
 
+import com.map2mc.Map2mcConfig;
 import com.map2mc.film.DirectorState;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
@@ -19,6 +20,7 @@ public final class Map2mcClient implements ClientModInitializer {
 
     private boolean wasActive = false;
     private boolean priorHudHidden = false;
+    private int priorViewDistance = -1;
 
     @Override
     public void onInitializeClient() {
@@ -30,8 +32,15 @@ public final class Map2mcClient implements ClientModInitializer {
         if (active && !wasActive) {
             priorHudHidden = mc.options.hudHidden;
             mc.options.hudHidden = true; // clean recording frame (F1 stays user-overridable)
+            // Raise render distance so the build doesn't clip out / vanish into distance fog. (Shader
+            // volumetric fog is the user's Iris setting — see RECORDING.md §E — not ours to change.)
+            priorViewDistance = mc.options.getViewDistance().getValue();
+            mc.options.getViewDistance().setValue(Math.max(priorViewDistance, Map2mcConfig.filmViewDistance));
         } else if (!active && wasActive) {
             mc.options.hudHidden = priorHudHidden;
+            if (priorViewDistance > 0) {
+                mc.options.getViewDistance().setValue(priorViewDistance);
+            }
         }
         wasActive = active;
     }

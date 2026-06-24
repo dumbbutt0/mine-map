@@ -5,6 +5,7 @@ import com.map2mc.Map2mcConfig;
 import com.map2mc.build.BuildJob;
 import com.map2mc.orbit.Orbit;
 import com.map2mc.orbit.OrbitKeyframe;
+import com.map2mc.place.Bounds;
 import net.minecraft.network.packet.s2c.play.PositionFlag;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.MinecraftServer;
@@ -39,7 +40,8 @@ public final class DirectorCamera {
         final ServerWorld world;
         final RegistryKey<World> worldKey;
         final BuildJob job;
-        final Orbit.Params params;
+        final Bounds fullBounds;      // the whole build's bounds; framing is sized to CURRENT extent
+        final int radiusOverride;     // >0 pins the orbit radius; <=0 = dynamic current-extent framing
         final int window;
         final Vec3d fallbackAim;
         final GameMode prevMode;      // only meaningful when player != null
@@ -48,13 +50,14 @@ public final class DirectorCamera {
         double maxFrontierY = Double.NEGATIVE_INFINITY; // monotonic clamp so the camera never dips
         int logTicks = 0;
 
-        Film(UUID player, ServerWorld world, BuildJob job, Orbit.Params params, int window,
-             Vec3d fallbackAim, GameMode prevMode, long buildMs) {
+        Film(UUID player, ServerWorld world, BuildJob job, Bounds fullBounds, int radiusOverride,
+             int window, Vec3d fallbackAim, GameMode prevMode, long buildMs) {
             this.player = player;
             this.world = world;
             this.worldKey = world.getRegistryKey();
             this.job = job;
-            this.params = params;
+            this.fullBounds = fullBounds;
+            this.radiusOverride = radiusOverride;
             this.window = window;
             this.fallbackAim = fallbackAim;
             this.prevMode = prevMode;
@@ -73,7 +76,8 @@ public final class DirectorCamera {
      * sequence (headless verification). Cuts to the progress-0 pose immediately.
      */
     public static void start(ServerWorld world, ServerPlayerEntity player, BuildJob job,
-                             Orbit.Params params, int window, Vec3d fallbackAim, int durationSecs) {
+                             Bounds fullBounds, int radiusOverride, int window, Vec3d fallbackAim,
+                             int durationSecs) {
         RegistryKey<World> key = world.getRegistryKey();
         Film existing = ACTIVE.remove(key);
         UUID pid = null;
@@ -84,8 +88,8 @@ public final class DirectorCamera {
                     ? existing.prevMode : player.interactionManager.getGameMode();
             player.changeGameMode(GameMode.SPECTATOR);
         }
-        Film f = new Film(pid, world, job, params, Math.max(1, window), fallbackAim, prev,
-                Math.max(1, durationSecs) * 1000L);
+        Film f = new Film(pid, world, job, fullBounds, radiusOverride, Math.max(1, window), fallbackAim,
+                prev, Math.max(1, durationSecs) * 1000L);
         ACTIVE.put(key, f);
         tickFilm(player, f); // cut to the start pose
     }
@@ -146,7 +150,11 @@ public final class DirectorCamera {
         Frontier frontier = new Frontier(
                 new Vec3d(raw.centroid().x, clampedY, raw.centroid().z), raw.bbox(), raw.count());
 
-        OrbitKeyframe k = FilmDirector.directorPose(progress, frontier, f.params,
+        // Dynamic framing: size the orbit to the CURRENT built extent (tight on the small base,
+        // widening as the structure grows) instead of the finished build's final size.
+        Orbit.Params params = FilmDirector.framingFor(f.fullBounds, clampedY, f.radiusOverride,
+                Map2mcConfig.orbitRadiusFactor);
+        OrbitKeyframe k = FilmDirector.directorPose(progress, frontier, params,
                 Map2mcConfig.filmOrbitTurns, Map2mcConfig.filmCameraRise, Map2mcConfig.filmAimLeadY,
                 0L, f.buildMs);
 
@@ -164,14 +172,15 @@ public final class DirectorCamera {
         if (f.logTicks++ % 10 == 0 || f.job.isDone()) {
             double aimY = clampedY + Map2mcConfig.filmAimLeadY;
             Map2mc.LOGGER.info(
-                    "[map2mc][director] progress={} placed={}/{} frontierY={} count={} camPose=({},{},{}) "
-                            + "yaw={} pitch={} aim=({},{},{})",
+                    "[map2mc][director] progress={} placed={}/{} frontierY={} count={} radius={} "
+                            + "camPose=({},{},{}) yaw={} pitch={} aim=({},{},{})",
                     String.format("%.3f", progress), f.job.placed(), f.job.total(),
                     String.format("%.1f", clampedY), frontier.count(),
+                    String.format("%.1f", params.radius()),
                     String.format("%.2f", cur.x()), String.format("%.2f", cur.y()), String.format("%.2f", cur.z()),
                     String.format("%.2f", cur.yaw()), String.format("%.2f", cur.pitch()),
-                    String.format("%.2f", f.params.cx()), String.format("%.2f", aimY),
-                    String.format("%.2f", f.params.cz()));
+                    String.format("%.2f", params.cx()), String.format("%.2f", aimY),
+                    String.format("%.2f", params.cz()));
         }
     }
 

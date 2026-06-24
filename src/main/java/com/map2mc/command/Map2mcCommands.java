@@ -385,18 +385,21 @@ public final class Map2mcCommands {
             src.sendError(Text.literal("map2mc: no active build to film"));
             return 0;
         }
-        Orbit.Params params = Orbit.Params.fromBounds(
-                h.bounds(), radius <= 0 ? 0 : radius, Map2mcConfig.orbitRadiusFactor);
-        Vec3d fallbackAim = h.bounds().center();
-        DirectorCamera.start(world, player, job, params, Map2mcConfig.frontierWindow, fallbackAim, h.etaSec());
+        // The pre-first-block aim is the build's BASE (not its mid-height center): the monotonic
+        // frontier-Y clamp would otherwise pin the framing at mid-height and never tighten on the base.
+        Vec3d fallbackAim = Vec3d.ofCenter(h.bounds().centerBase());
+        // radius <= 0 → dynamic current-extent framing (default); > 0 pins the orbit radius.
+        DirectorCamera.start(world, player, job, h.bounds(), radius, Map2mcConfig.frontierWindow,
+                fallbackAim, h.etaSec());
 
-        final int r = (int) params.radius();
+        final String framing = radius > 0
+                ? "fixed orbit r=" + radius : "dynamic framing (tracks current extent)";
         final String camState = player != null
                 ? "spectator + camera engaged" : "headless: logging director poses (no camera)";
         src.sendFeedback(() -> Text.literal(String.format(
-                "map2mc: film '%s' — %d blocks, %s; frontier-tracking orbit r=%d, window %d. %s; "
+                "map2mc: film '%s' — %d blocks, %s; frontier-tracking %s, window %d. %s; "
                         + "/map2mc film stop to end.",
-                name, h.count(), PaceSetting.describe(), r, Map2mcConfig.frontierWindow, camState)), false);
+                name, h.count(), PaceSetting.describe(), framing, Map2mcConfig.frontierWindow, camState)), false);
         return 1;
     }
 

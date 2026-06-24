@@ -2,6 +2,7 @@ package com.map2mc.film;
 
 import com.map2mc.orbit.Orbit;
 import com.map2mc.orbit.OrbitKeyframe;
+import com.map2mc.place.Bounds;
 import net.minecraft.util.math.Vec3d;
 
 /**
@@ -17,6 +18,32 @@ import net.minecraft.util.math.Vec3d;
 public final class FilmDirector {
 
     private FilmDirector() {
+    }
+
+    /**
+     * Framing ({@link Orbit.Params}: centre + radius) sized to the build's CURRENT extent, so the
+     * camera stays tight on the small base and widens as the structure grows — rather than being
+     * locked to the finished build's size (the "circling a speck in the fog" problem). Pure.
+     *
+     * <p>Uses the full footprint XZ (the orbit centre is the build centre, ~constant) but only the
+     * built height so far: {@code baseY .. currentTopY}. So {@code radius = horizontalRadius·factor +
+     * span·0.25} grows from footprint-sized (low base) to full as height accrues. A positive
+     * {@code radiusOverride} pins the radius (the user asked for a fixed framing).
+     *
+     * <p>ASSUMPTION: the footprint is widest at/near the base (true for towers/landmarks), so the
+     * full XZ footprint is a good stand-in for "what's built so far" horizontally. For shapes that
+     * widen higher up, this over-frames slightly early (never too tight) — acceptable; an exact
+     * cumulative-bbox tracker is the fallback if ever needed.
+     */
+    public static Orbit.Params framingFor(Bounds fullBounds, double currentTopY,
+                                          int radiusOverride, double radiusFactor) {
+        if (radiusOverride > 0) {
+            return Orbit.Params.fromBounds(fullBounds, radiusOverride, radiusFactor);
+        }
+        int top = (int) Math.ceil(Math.max(currentTopY, fullBounds.minY()));
+        Bounds current = new Bounds(fullBounds.minX(), fullBounds.minY(), fullBounds.minZ(),
+                fullBounds.maxX(), top, fullBounds.maxZ());
+        return Orbit.Params.fromBounds(current, 0, radiusFactor);
     }
 
     /**

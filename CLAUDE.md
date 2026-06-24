@@ -75,6 +75,13 @@ never owns the camera or recording.
     overridden viewpoint near loaded chunks.)
   - **Frontier** = centroid (+bbox) of the last `Map2mcConfig.frontierWindow` (256) placed blocks,
     from `BuildJob.ordered()` + the cursor — no new per-block tracking; works for any ordering.
+  - **Dynamic framing** (`FilmDirector.framingFor`): the orbit radius is sized to the build's
+    CURRENT extent each tick (full footprint XZ, `baseY..currentTopY`), NOT the finished size — so the
+    camera is **tight on the small base (~r86 for the Eiffel) and widens to ~r138 as it rises**,
+    instead of circling a speck far out (the original r≈141 problem). The pre-first-block aim is the
+    build's `centerBase()` (base, low Y), so the monotonic frontier-Y clamp doesn't pin framing at
+    mid-height. A `/map2mc film … <radius>` arg pins it. Client raises view distance to
+    `Map2mcConfig.filmViewDistance` while filming (shader fog is the user's Iris setting — RECORDING.md §E).
   - **Geometry reuse:** `Orbit.poseAt` was generalized into `Orbit.lookAt()` + `Orbit.poseAtAiming()`
     so the camera orbits the build centre while AIMING at the frontier — ONE geometry source; the
     existing `OrbitTest` is unchanged (poseAt delegates).

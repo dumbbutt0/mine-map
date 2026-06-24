@@ -42,4 +42,9 @@ public final class Map2mcConfig {
 
     /** Blocks above the frontier centroid the camera AIMS (0 = look straight at the front). */
     public static volatile double filmAimLeadY = 2.0;
+
+    /** View (render) distance in chunks to raise the client to WHILE filming, restored on stop.
+     *  Reduces "build lost in fog/clip" — but shader volumetric/distance fog is the user's Iris
+     *  setting (see RECORDING.md §E), which the mod can't and shouldn't override. */
+    public static volatile int filmViewDistance = 24;
 }
