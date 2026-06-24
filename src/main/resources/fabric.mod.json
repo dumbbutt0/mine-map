@@ -6,8 +6,8 @@
   "description": "Assembles landmark builds and lays them down as cinematic, bottom-up timelapses.",
   "authors": ["map2mc"],
   "contact": {
-    "homepage": "https://github.com/bradautomates/claude-video",
-    "sources": "https://github.com/bradautomates/claude-video"
+    "homepage": "https://github.com/dumbbutt0/mine-map",
+    "sources": "https://github.com/dumbbutt0/mine-map"
   },
   "license": "MIT",
   "environment": "*",
