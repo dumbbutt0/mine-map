@@ -85,6 +85,17 @@ never owns the camera or recording.
   - **Geometry reuse:** `Orbit.poseAt` was generalized into `Orbit.lookAt()` + `Orbit.poseAtAiming()`
     so the camera orbits the build centre while AIMING at the frontier — ONE geometry source; the
     existing `OrbitTest` is unchanged (poseAt delegates).
+  - **V2-1 aspect-aware vertical + hero framing** (`FilmDirector.framingForAspect`, the live film path):
+    the camera distance is sized so the build's **current** extent fills a **target aspect** frame
+    (default **9:16**), and the camera sits LOW with the aim HIGH so the structure **looms (looks up)**.
+    `radius = max(dV, dW)·margin` where `dV = (span/2 + headroom·span)/tan(vFov/2)` fits the HEIGHT and
+    `dW = horizontalRadius/tan(hFov/2)` (`tan(hFov/2)=(W/H)·tan(vFov/2)`) fits the rotated WIDTH — so a
+    9:16 tower frames by height (Eiffel ~r120 early → ~r225 full), a 16:9 wide build by width. The mod
+    **can't resize the game window**, so aspect/FOV are **config** (`filmAspectW/H`, `filmBaseFovDeg`,
+    `filmFrameMargin`, `filmHeadroomFrac`, `filmHeroCamFrac/AimFrac`) the user matches when recording
+    (portrait window / ReplayMod 1080×1920). Framing tracks the **true current top** (`Frontier.bbox().maxY()`,
+    not the lagging centroid) so the full height stays in frame. `framingFor`/`directorPose` (the V1
+    frontier orbit) are kept for V2-3's `--orbit-only` and the shot library.
   - `/map2mc film <path> [pos] [rotation] [radius] [duration]` (+ `film stop`).
 
 ## .schem format notes (GROUND TRUTH — follow the fixtures, not generic Sponge docs)

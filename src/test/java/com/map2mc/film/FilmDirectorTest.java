@@ -92,6 +92,72 @@ class FilmDirectorTest {
         assertEquals(99.0, FilmDirector.framingFor(full, 160, 99, 2.0).radius(), EPS, "override pins radius");
     }
 
+    // ── V2-1: aspect-aware vertical + hero framing ───────────────────────────────────────────────
+
+    @Test
+    void aspectVerticalFramesByHeight() {
+        // 9:16 portrait, a tall thin tower (footprint 86×85, height ~222) → HEIGHT binds.
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        int w = 9, h = 16;
+        double fov = 70.0, head = 0.15, margin = 1.10;
+        double r = FilmDirector.framingForAspect(full, 162, 0, w, h, fov, head, margin, 0.35, 0.85).radius();
+
+        double span = 162 - (-60);
+        double tanV = Math.tan(Math.toRadians(fov) / 2.0);
+        double tanH = ((double) w / h) * tanV;
+        double dV = (span * 0.5 + head * span) / tanV;
+        double dW = full.horizontalRadius() / tanH;
+        assertTrue(dV > dW, "height should bind for a tall tower in 9:16: dV=" + dV + " dW=" + dW);
+        assertEquals(Math.max(dV, dW) * margin, r, 1e-3, "radius = height-bound distance × margin");
+
+        double rNoHead = FilmDirector.framingForAspect(full, 162, 0, w, h, fov, 0.0, margin, 0.35, 0.85).radius();
+        assertTrue(r > rNoHead, "headroom must increase the framing distance");
+    }
+
+    @Test
+    void aspectLandscapeFramesByWidth() {
+        // 16:9 landscape, a wide flat build (footprint 200×200, height ~19) → WIDTH binds.
+        Bounds wide = new Bounds(0, 0, 0, 199, 19, 199);
+        int w = 16, h = 9;
+        double fov = 70.0, head = 0.15, margin = 1.10;
+        double r = FilmDirector.framingForAspect(wide, 19, 0, w, h, fov, head, margin, 0.35, 0.85).radius();
+
+        double span = 19.0;
+        double tanV = Math.tan(Math.toRadians(fov) / 2.0);
+        double tanH = ((double) w / h) * tanV;
+        double dV = (span * 0.5 + head * span) / tanV;
+        double dW = wide.horizontalRadius() / tanH;
+        assertTrue(dW > dV, "width should bind for a wide flat build in 16:9: dV=" + dV + " dW=" + dW);
+        assertEquals(Math.max(dV, dW) * margin, r, 1e-3, "radius = width-bound distance × margin");
+    }
+
+    @Test
+    void aspectRadiusGrowsWithBuiltHeight() {
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        double rLow = FilmDirector.framingForAspect(full, -40, 0, 9, 16, 70, 0.15, 1.10, 0.35, 0.85).radius();
+        double rMid = FilmDirector.framingForAspect(full, 70, 0, 9, 16, 70, 0.15, 1.10, 0.35, 0.85).radius();
+        double rHigh = FilmDirector.framingForAspect(full, 162, 0, 9, 16, 70, 0.15, 1.10, 0.35, 0.85).radius();
+        assertTrue(rLow < rMid && rMid < rHigh,
+                "9:16 framing distance must grow as the build climbs: " + rLow + " < " + rMid + " < " + rHigh);
+    }
+
+    @Test
+    void heroLookIsUpward() {
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        Orbit.Params p = FilmDirector.framingForAspect(full, 162, 0, 9, 16, 70, 0.15, 1.10, 0.35, 0.85);
+        assertTrue(p.aimY() > p.camYStart(), "aim should be above the camera (so it looks up)");
+        OrbitKeyframe k = Orbit.poseAt(p.cx(), p.cz(), p.aimY(), p.radius(),
+                p.camYStart(), p.camYEnd(), 0.0, 0, 0);
+        assertTrue(k.pitch() < 0, "hero shot looks UP (negative pitch), got " + k.pitch());
+    }
+
+    @Test
+    void aspectRadiusOverridePins() {
+        Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
+        assertEquals(77.0,
+                FilmDirector.framingForAspect(full, 50, 77, 9, 16, 70, 0.15, 1.10, 0.35, 0.85).radius(), EPS);
+    }
+
     @Test
     void poseIsContinuousInProgress() {
         OrbitKeyframe prev = null;

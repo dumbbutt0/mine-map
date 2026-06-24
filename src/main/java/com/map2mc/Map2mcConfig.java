@@ -47,4 +47,29 @@ public final class Map2mcConfig {
      *  Reduces "build lost in fog/clip" — but shader volumetric/distance fog is the user's Iris
      *  setting (see RECORDING.md §E), which the mod can't and shouldn't override. */
     public static volatile int filmViewDistance = 24;
+
+    // ── V2-1: aspect-aware vertical + hero framing ───────────────────────────────────────────────
+    // The mod CANNOT resize the game window, so the framing is sized for a TARGET aspect the user
+    // records at (a portrait MC window, or ReplayMod at 1080×1920) — not the dev window. baseFovDeg
+    // is the vertical FOV the math assumes; tune it to match the recording. The recorded look is the
+    // real gate.
+
+    /** Target frame aspect numerator/denominator (default 9:16 portrait). */
+    public static volatile int filmAspectW = 9;
+    public static volatile int filmAspectH = 16;
+
+    /** Vertical FOV (degrees) the framing math assumes; match your recording FOV. */
+    public static volatile double filmBaseFovDeg = 70.0;
+
+    /** Safety zoom-out multiplier on the computed distance (>1 pulls back a touch). */
+    public static volatile double filmFrameMargin = 1.10;
+
+    /** Headroom above the build top, as a fraction of build height, when fitting by height. */
+    public static volatile double filmHeadroomFrac = 0.15;
+
+    /** Hero up-look: camera height as a fraction of the current build height (low → it looms). */
+    public static volatile double filmHeroCamFrac = 0.35;
+
+    /** Hero up-look: aim height as a fraction of the current build height (high → camera looks UP). */
+    public static volatile double filmHeroAimFrac = 0.85;
 }

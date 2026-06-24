@@ -142,21 +142,25 @@ public final class DirectorCamera {
     private static void tickFilm(ServerPlayerEntity player, Film f) {
         float progress = f.job.progress();
 
-        // Frontier with a monotonic-Y clamp so the camera climbs steadily even if the sliding
-        // window's centroid dips between layers of differing width.
+        // Frame off the TRUE current top — the window's max Y (in ASCENDING_Y order the last-placed
+        // blocks are the top band), monotonically clamped so the framing never dips. Using the top
+        // (not the lagging centroid) keeps the whole built height INSIDE the vertical frame instead of
+        // clipping the upper tower once the radius would otherwise lag.
         Frontier raw = Frontier.fromJob(f.job, f.window, f.fallbackAim);
-        double clampedY = Math.max(raw.centroid().y, f.maxFrontierY);
-        f.maxFrontierY = clampedY;
-        Frontier frontier = new Frontier(
-                new Vec3d(raw.centroid().x, clampedY, raw.centroid().z), raw.bbox(), raw.count());
+        double clampedTop = Math.max(raw.bbox().maxY() + 1.0, f.maxFrontierY);
+        f.maxFrontierY = clampedTop;
 
-        // Dynamic framing: size the orbit to the CURRENT built extent (tight on the small base,
-        // widening as the structure grows) instead of the finished build's final size.
-        Orbit.Params params = FilmDirector.framingFor(f.fullBounds, clampedY, f.radiusOverride,
-                Map2mcConfig.orbitRadiusFactor);
-        OrbitKeyframe k = FilmDirector.directorPose(progress, frontier, params,
-                Map2mcConfig.filmOrbitTurns, Map2mcConfig.filmCameraRise, Map2mcConfig.filmAimLeadY,
-                0L, f.buildMs);
+        // V2-1 aspect-aware vertical + hero framing: size the camera distance so the CURRENT extent
+        // fills the configured target frame (9:16 by default), with the camera low and the aim high so
+        // the structure looms. Distance grows tight→wide as the build climbs.
+        Orbit.Params params = FilmDirector.framingForAspect(f.fullBounds, clampedTop, f.radiusOverride,
+                Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
+                Map2mcConfig.filmHeadroomFrac, Map2mcConfig.filmFrameMargin,
+                Map2mcConfig.filmHeroCamFrac, Map2mcConfig.filmHeroAimFrac);
+        double frac = progress * Math.max(1, Map2mcConfig.filmOrbitTurns);
+        // poseAt orbits the build centre at the framed radius and looks UP the central axis at aimY.
+        OrbitKeyframe k = Orbit.poseAt(params.cx(), params.cz(), params.aimY(), params.radius(),
+                params.camYStart(), params.camYEnd(), frac, 0L, f.buildMs);
 
         DirectorState.Pose cur = new DirectorState.Pose(k.x(), k.y(), k.z(), k.yaw(), k.pitch());
         DirectorState.Pose prev = f.lastPose != null ? f.lastPose : cur;
@@ -170,12 +174,12 @@ public final class DirectorCamera {
         }
 
         if (f.logTicks++ % 10 == 0 || f.job.isDone()) {
-            double aimY = clampedY + Map2mcConfig.filmAimLeadY;
+            double aimY = params.aimY();
             Map2mc.LOGGER.info(
-                    "[map2mc][director] progress={} placed={}/{} frontierY={} count={} radius={} "
+                    "[map2mc][director] progress={} placed={}/{} topY={} count={} radius={} "
                             + "camPose=({},{},{}) yaw={} pitch={} aim=({},{},{})",
                     String.format("%.3f", progress), f.job.placed(), f.job.total(),
-                    String.format("%.1f", clampedY), frontier.count(),
+                    String.format("%.1f", clampedTop), raw.count(),
                     String.format("%.1f", params.radius()),
                     String.format("%.2f", cur.x()), String.format("%.2f", cur.y()), String.format("%.2f", cur.z()),
                     String.format("%.2f", cur.yaw()), String.format("%.2f", cur.pitch()),

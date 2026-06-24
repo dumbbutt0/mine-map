@@ -47,6 +47,53 @@ public final class FilmDirector {
     }
 
     /**
+     * Aspect-aware framing (V2-1): sizes the camera distance so the build's CURRENT extent fills a
+     * target frame of aspect {@code aspectW:aspectH} at a base vertical FOV, and places the camera LOW
+     * with the aim HIGH so the structure looms (a "hero" up-look). Pure. Returned as an
+     * {@link Orbit.Params} so {@link Orbit#poseAt} drives it directly (aimY = the look height;
+     * camYStart == camYEnd = a flat camera height for this tick — it climbs across ticks as the build
+     * grows, via {@code currentTopY}).
+     *
+     * <p>The mod can't resize the game window, so {@code aspectW:aspectH} is a CONFIGURED target the
+     * user records at (a portrait window, or ReplayMod 1080×1920) — not the dev window;
+     * {@code baseFovDeg} is the vertical FOV the math assumes (tune to match the recording).
+     *
+     * <ul>
+     *   <li>{@code dV = (span/2 + headroomFrac·span) / tan(vFov/2)} — distance to fit the HEIGHT.</li>
+     *   <li>{@code dW = horizontalRadius / tan(hFov/2)}, with {@code tan(hFov/2) = (W/H)·tan(vFov/2)} —
+     *       distance to fit the worst-case rotated WIDTH.</li>
+     *   <li>{@code radius = max(dV, dW)·margin}. For a tall tower in 9:16 {@code dV} binds (frame by
+     *       height with headroom); for a wide build in 16:9 {@code dW} binds.</li>
+     * </ul>
+     * A positive {@code radiusOverride} pins the distance (skips the aspect math).
+     */
+    public static Orbit.Params framingForAspect(Bounds fullBounds, double currentTopY, int radiusOverride,
+                                                int aspectW, int aspectH, double baseFovDeg,
+                                                double headroomFrac, double margin,
+                                                double heroCamFrac, double heroAimFrac) {
+        double cx = (fullBounds.minX() + fullBounds.maxX() + 1) / 2.0;
+        double cz = (fullBounds.minZ() + fullBounds.maxZ() + 1) / 2.0;
+        double baseY = fullBounds.minY();
+        double top = Math.max(currentTopY, baseY + 1.0);
+        double span = Math.max(1.0, top - baseY);
+        double horizRadius = Math.max(1.0, fullBounds.horizontalRadius());
+
+        double radius;
+        if (radiusOverride > 0) {
+            radius = radiusOverride;
+        } else {
+            double tanV = Math.tan(Math.toRadians(baseFovDeg) / 2.0);
+            double tanH = ((double) aspectW / aspectH) * tanV;
+            double dV = (span * 0.5 + headroomFrac * span) / tanV; // fit the height into the vertical
+            double dW = horizRadius / tanH;                        // fit the rotated width into the horizontal
+            radius = Math.max(4.0, Math.max(dV, dW) * margin);
+        }
+        double camY = baseY + heroCamFrac * span;
+        double aimY = baseY + heroAimFrac * span;
+        return new Orbit.Params(cx, cz, aimY, radius, camY, camY);
+    }
+
+    /**
      * @param progress    build progress in [0,1] (the ONLY clock)
      * @param frontier    the construction front (aim target)
      * @param params      orbit framing (cx, cz, radius) — derived once from the build's bounds
