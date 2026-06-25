@@ -10,20 +10,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Pure foundation geometry: GROUND a fixed structure on uneven terrain WITHOUT warping the structure.
- * Given the footprint, the chosen base Y (the structure's lowest layer sits here), and the per-column
- * surface Y, it plans cells that:
+ * Pure foundation geometry: GROUND a fixed structure on uneven terrain WITHOUT warping the structure,
+ * and LEVEL a region (the footprint + a margin) so nothing terrain or vegetation looms over/through it.
+ * Per column, over {@code region} (= footprint grown by the clear margin):
  * <ul>
- *   <li><b>bridge DOWN</b>: where the ground is below the base, fill {@code surfaceY .. baseY-1} so the
- *       structure rests on solid ground instead of floating (capped at {@code maxBridge} deep);</li>
- *   <li><b>clear ABOVE</b>: where the ground rises above the base, clear {@code baseY .. surfaceY-1}
- *       — WITHIN THE FOOTPRINT ONLY — so the structure isn't buried (the structure later overwrites
- *       the cells it actually occupies);</li>
- *   <li>flat ground needs neither — the structure rests on the natural surface.</li>
+ *   <li><b>bridge DOWN</b>: where the SOLID ground is below the base, fill {@code solid .. baseY-1} so
+ *       the build rests on solid ground (capped at {@code maxBridge});</li>
+ *   <li><b>clear ABOVE up to the VEGETATION top</b>: clear {@code baseY .. vegTop-1} — using the
+ *       WORLD_SURFACE height (includes leaves/plants/snow), not just the solid heightmap — so tree
+ *       canopy and terrain that would poke above/around the build are removed (the structure later
+ *       overwrites the cells it occupies);</li>
+ *   <li>the margin border gets the same treatment → a clean leveled plaza, no wall/canopy at the edge.</li>
  * </ul>
- * {@link #plan} is pure (BlockPos + a fill/clear flag), unit-tested with no Minecraft bootstrap;
- * {@link #generate} attaches the block states. The blocks go through the normal paced build queue
- * combined with the structure (ascending-Y → the foundation rises first).
+ * {@link #plan} is pure (BlockPos + a fill/clear flag), unit-tested with no Minecraft bootstrap.
  */
 public final class FoundationGenerator {
 
@@ -34,18 +33,23 @@ public final class FoundationGenerator {
     public record Cell(BlockPos pos, boolean fill) {
     }
 
-    /** Pure geometry: which cells to fill (bridge down) or clear (above), per the surface grid. */
-    public static List<Cell> plan(Bounds footprint, int baseY, int[] surfaceY, int maxBridge) {
+    /**
+     * Pure geometry over {@code region}. {@code solidSurf}/{@code vegTop} are per-column, row-major:
+     * {@code index = (z-minZ)*sizeX + (x-minX)} (the indexing {@link TerrainSampler} produces).
+     */
+    public static List<Cell> plan(Bounds region, int baseY, int[] solidSurf, int[] vegTop, int maxBridge) {
         List<Cell> out = new ArrayList<>();
-        int sizeX = footprint.sizeX();
-        for (int z = footprint.minZ(); z <= footprint.maxZ(); z++) {
-            for (int x = footprint.minX(); x <= footprint.maxX(); x++) {
-                int surf = surfaceY[(z - footprint.minZ()) * sizeX + (x - footprint.minX())];
-                int fillBottom = Math.max(surf, baseY - maxBridge); // bridge DOWN, capped
+        int sizeX = region.sizeX();
+        for (int z = region.minZ(); z <= region.maxZ(); z++) {
+            for (int x = region.minX(); x <= region.maxX(); x++) {
+                int gi = (z - region.minZ()) * sizeX + (x - region.minX());
+                int solid = solidSurf[gi];
+                int veg = vegTop[gi];
+                int fillBottom = Math.max(solid, baseY - maxBridge); // bridge DOWN, capped
                 for (int y = fillBottom; y < baseY; y++) {
                     out.add(new Cell(new BlockPos(x, y, z), true));
                 }
-                for (int y = baseY; y < surf; y++) {                // clear ABOVE, footprint only
+                for (int y = baseY; y < veg; y++) {                  // clear ABOVE up to the vegetation top
                     out.add(new Cell(new BlockPos(x, y, z), false));
                 }
             }
@@ -54,11 +58,11 @@ public final class FoundationGenerator {
     }
 
     /** Production: {@link #plan} mapped to {@link Placement}s ({@code material} for fill, air for clear). */
-    public static List<Placement> generate(Bounds footprint, int baseY, int[] surfaceY,
+    public static List<Placement> generate(Bounds region, int baseY, int[] solidSurf, int[] vegTop,
                                            BlockState material, int maxBridge) {
         BlockState air = Blocks.AIR.getDefaultState();
         List<Placement> out = new ArrayList<>();
-        for (Cell c : plan(footprint, baseY, surfaceY, maxBridge)) {
+        for (Cell c : plan(region, baseY, solidSurf, vegTop, maxBridge)) {
             out.add(new Placement(c.pos(), c.fill() ? material : air));
         }
         return out;

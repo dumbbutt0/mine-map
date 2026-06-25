@@ -61,8 +61,9 @@ public final class Map2mcConfig {
     /** Vertical FOV (degrees) the framing math assumes; match your recording FOV. */
     public static volatile double filmBaseFovDeg = 70.0;
 
-    /** Safety zoom-out multiplier on the computed distance (>1 pulls back a touch). */
-    public static volatile double filmFrameMargin = 1.10;
+    /** Zoom multiplier on the computed framing distance: 1.0 = the build fills the frame edge-to-edge,
+     *  &gt;1 pulls back. Tightened from 1.10 so the build DOMINATES the frame (was reading "too far"). */
+    public static volatile double filmFrameMargin = 1.0;
 
     /** Headroom above the build top, as a fraction of build height, when fitting by height. */
     public static volatile double filmHeadroomFrac = 0.15;
@@ -116,6 +117,10 @@ public final class Map2mcConfig {
 
     /** Foundation fill material: {@code auto} (dominant surface block) | {@code stone|cobble|dirt}. */
     public static volatile String foundationStyle = "auto";
+
+    /** Blocks beyond the footprint the foundation also LEVELS (clear terrain + vegetation, fill to grade)
+     *  — a plaza border so no terrain wall or tree canopy hugs/looms over the build. */
+    public static volatile int foundationClearMargin = 3;
 
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
@@ -201,7 +206,8 @@ public final class Map2mcConfig {
             new Knob("foundationEnabled", () -> String.valueOf(foundationEnabled), v -> foundationEnabled = boolIn(v)),
             new Knob("foundationSlopeThreshold", () -> String.valueOf(foundationSlopeThreshold), v -> foundationSlopeThreshold = intIn(v, 0, 256)),
             new Knob("foundationMaxBridge", () -> String.valueOf(foundationMaxBridge), v -> foundationMaxBridge = intIn(v, 1, 256)),
-            new Knob("foundationStyle", () -> foundationStyle, v -> foundationStyle = strIn(v, "auto", "stone", "cobble", "dirt")));
+            new Knob("foundationStyle", () -> foundationStyle, v -> foundationStyle = strIn(v, "auto", "stone", "cobble", "dirt")),
+            new Knob("foundationClearMargin", () -> String.valueOf(foundationClearMargin), v -> foundationClearMargin = intIn(v, 0, 64)));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {

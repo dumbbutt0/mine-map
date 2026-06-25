@@ -331,23 +331,29 @@ public final class Map2mcCommands {
             Bounds bounds = r.build().bounds();
             boolean superflat = world.getChunkManager().getChunkGenerator() instanceof FlatChunkGenerator;
             if (Map2mcConfig.foundationEnabled && !superflat) {
-                TerrainSampler.Result ts = TerrainSampler.sample(world, bounds, Map2mcConfig.foundationStyle);
+                TerrainSampler.Result ts = TerrainSampler.sample(world, bounds,
+                        Map2mcConfig.foundationClearMargin, Map2mcConfig.foundationStyle);
                 final TerrainSample s = ts.sample();
                 final int baseY = s.medianY();
+                final boolean desert = ts.desert();
                 List<Placement> grounded = load(name,
                         new BlockPos(anchor.getX(), baseY, anchor.getZ()), mode, rot).build().placements();
-                List<Placement> foundation = FoundationGenerator.generate(
-                        bounds, baseY, ts.surfaceY(), ts.material(), Map2mcConfig.foundationMaxBridge);
+                // Foundation over the footprint + margin: bridge below grade, clear terrain AND vegetation
+                // above (up to WORLD_SURFACE) so nothing looms over/through the build.
+                List<Placement> foundation = FoundationGenerator.generate(ts.region(), baseY,
+                        ts.solidSurf(), ts.vegTop(), ts.material(), Map2mcConfig.foundationMaxBridge);
                 List<Placement> combined = new ArrayList<>(foundation.size() + grounded.size());
                 combined.addAll(foundation);
                 combined.addAll(grounded);
                 placements = combined;
                 bounds = Bounds.fromPlacements(combined);
-                if (s.hasWaterOrVoid() || s.maxBridgeDepth(baseY) > Map2mcConfig.foundationMaxBridge
+                if (desert || s.hasWaterOrVoid() || s.maxBridgeDepth(baseY) > Map2mcConfig.foundationMaxBridge
                         || s.slope() > Map2mcConfig.foundationSlopeThreshold) {
                     src.sendFeedback(() -> Text.literal(String.format(
-                            "map2mc: sited at grade y=%d (slope %d%s) — a flatter, dry spot foundations cleaner.",
-                            baseY, s.slope(), s.hasWaterOrVoid() ? ", water present" : "")), false);
+                            "map2mc: sited at grade y=%d (slope %d%s%s) — %s.", baseY, s.slope(),
+                            s.hasWaterOrVoid() ? ", water" : "", desert ? ", desert" : "",
+                            desert ? "a green, flatter biome matches the reference look better"
+                                    : "a flatter, dry spot foundations cleaner")), false);
                 }
             }
 

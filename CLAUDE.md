@@ -37,7 +37,9 @@ never owns the camera or recording.
     under the footprint (`TerrainSampler` — force-gen the footprint chunks, then `getTopY(MOTION_BLOCKING_NO_LEAVES)`
     + biome/fluid per column → `TerrainSample`: min/median/max/slope + water/void flag), sites the build
     base at the **median grade**, and generates a foundation (`FoundationGenerator`, pure: bridge DOWN
-    where ground < base, clear ABOVE within the footprint, material by biome) that's **combined with the
+    where ground < base, clear terrain AND vegetation/leaves ABOVE up to WORLD_SURFACE over the footprint
+    **+ a `foundationClearMargin` border** (plaza — no wall/canopy looming over the build), material by
+    biome) that's **combined with the
     structure into one ascending-Y job** — the foundation builds first as part of the timelapse. The
     **structure is re-resolved at the grade Y and otherwise untouched** (resolver unchanged); the
     area-profile handoff is computed from the combined placements (`AreaProfile.areaPerLayer(List)`).

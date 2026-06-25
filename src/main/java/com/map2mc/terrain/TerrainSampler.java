@@ -14,52 +14,73 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Thin Minecraft wrapper around {@link TerrainSample}: query the LIVE world's surface under a build's
- * footprint into a per-column grid, plus pick a fill material from the dominant surface block. Reading
- * {@code getTopY} loads/generates the chunk synchronously (the build force-loads them again when it
- * places), so no separate force-load is needed here. Server-thread only.
+ * Thin Minecraft wrapper around {@link TerrainSample}: sample the LIVE world over a build's footprint
+ * grown by a clear {@code margin}, into per-column grids of the SOLID surface (MOTION_BLOCKING_NO_LEAVES,
+ * for grade/bridging) and the VEGETATION top (WORLD_SURFACE, for clearing leaves/plants), plus a fill
+ * material and a desert flag. Reading {@code getTopY} needs the chunk generated, so the region chunks are
+ * force-generated first (the build force-loads them again when it places). Server-thread only.
  */
 public final class TerrainSampler {
 
     private TerrainSampler() {
     }
 
-    /** The sampled grid + stats + the chosen fill material. */
-    public record Result(TerrainSample sample, int[] surfaceY, BlockState material) {
+    /** The sampled region + grids + stats (graded over the inner footprint) + material + desert flag. */
+    public record Result(Bounds region, TerrainSample sample, int[] solidSurf, int[] vegTop,
+                         BlockState material, boolean desert) {
     }
 
     /**
-     * Sample the surface over {@code footprint}'s XZ. {@code surfaceY} is row-major
-     * ({@code index = (z-minZ)*sizeX + (x-minX)}) — the same indexing {@link FoundationGenerator} uses.
+     * @param footprint the build's XZ footprint; the sampled/leveled {@code region} is this grown by
+     *                  {@code margin} on each side. Grids are row-major over {@code region}
+     *                  ({@code index = (z-minZ)*sizeX + (x-minX)}); the {@link TerrainSample} (grade) is
+     *                  taken over the INNER footprint only so the margin doesn't skew the base Y.
      */
-    public static Result sample(ServerWorld world, Bounds footprint, String style) {
-        // Force the footprint chunks to FULL generation FIRST — getTopY does NOT generate on demand; an
-        // ungenerated column reads as the world bottom. (The build force-loads these again when it places.)
-        for (int cx = footprint.minX() >> 4; cx <= footprint.maxX() >> 4; cx++) {
-            for (int cz = footprint.minZ() >> 4; cz <= footprint.maxZ() >> 4; cz++) {
-                world.getChunk(cx, cz);
+    public static Result sample(ServerWorld world, Bounds footprint, int margin, String style) {
+        Bounds region = new Bounds(footprint.minX() - margin, footprint.minY(), footprint.minZ() - margin,
+                footprint.maxX() + margin, footprint.maxY(), footprint.maxZ() + margin);
+        for (int cx = region.minX() >> 4; cx <= region.maxX() >> 4; cx++) {
+            for (int cz = region.minZ() >> 4; cz <= region.maxZ() >> 4; cz++) {
+                world.getChunk(cx, cz); // FULL generation; getTopY does not generate on demand
             }
         }
-        int sizeX = footprint.sizeX();
-        int n = sizeX * footprint.sizeZ();
-        int[] surf = new int[n];
-        boolean[] waterOrVoid = new boolean[n];
+        int sizeX = region.sizeX();
+        int[] solid = new int[sizeX * region.sizeZ()];
+        int[] veg = new int[sizeX * region.sizeZ()];
+        boolean[] waterOrVoid = new boolean[sizeX * region.sizeZ()];
         Map<Block, Integer> tally = new HashMap<>();
         int bottom = world.getBottomY();
         int i = 0;
-        for (int z = footprint.minZ(); z <= footprint.maxZ(); z++) {
-            for (int x = footprint.minX(); x <= footprint.maxX(); x++) {
-                int top = world.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
-                surf[i] = top;
-                BlockState surfaceBlock = world.getBlockState(new BlockPos(x, top - 1, z));
-                boolean water = world.getFluidState(new BlockPos(x, top - 1, z)).isOf(Fluids.WATER);
-                boolean isVoid = top <= bottom + 1; // no real ground in the column
-                waterOrVoid[i] = water || isVoid;
-                tally.merge(surfaceBlock.getBlock(), 1, Integer::sum);
+        for (int z = region.minZ(); z <= region.maxZ(); z++) {
+            for (int x = region.minX(); x <= region.maxX(); x++) {
+                int s = world.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z); // solid ground
+                int v = world.getTopY(Heightmap.Type.WORLD_SURFACE, x, z);             // incl. leaves/plants
+                solid[i] = s;
+                veg[i] = Math.max(v, s);
+                waterOrVoid[i] = world.getFluidState(new BlockPos(x, s - 1, z)).isOf(Fluids.WATER)
+                        || s <= bottom + 1;
+                tally.merge(world.getBlockState(new BlockPos(x, s - 1, z)).getBlock(), 1, Integer::sum);
                 i++;
             }
         }
-        return new Result(TerrainSample.of(surf, waterOrVoid), surf, chooseMaterial(style, tally));
+        // grade (baseY) from the inner footprint columns only
+        int[] innerSolid = new int[footprint.sizeX() * footprint.sizeZ()];
+        boolean[] innerWaterVoid = new boolean[innerSolid.length];
+        int j = 0;
+        for (int z = footprint.minZ(); z <= footprint.maxZ(); z++) {
+            for (int x = footprint.minX(); x <= footprint.maxX(); x++) {
+                int gi = (z - region.minZ()) * sizeX + (x - region.minX());
+                innerSolid[j] = solid[gi];
+                innerWaterVoid[j] = waterOrVoid[gi];
+                j++;
+            }
+        }
+        Block dom = tally.entrySet().stream()
+                .max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(Blocks.STONE);
+        boolean desert = dom == Blocks.SAND || dom == Blocks.RED_SAND || dom == Blocks.SANDSTONE
+                || dom == Blocks.RED_SANDSTONE || dom == Blocks.TERRACOTTA;
+        return new Result(region, TerrainSample.of(innerSolid, innerWaterVoid), solid, veg,
+                chooseMaterial(style, tally), desert);
     }
 
     /** Fill material: a fixed choice, or (auto) the dominant solid surface block under the footprint. */
@@ -75,7 +96,7 @@ public final class TerrainSampler {
                     yield Blocks.DIRT.getDefaultState();      // grass top → dirt fill underneath
                 }
                 if (best == Blocks.AIR || best == Blocks.WATER) {
-                    yield Blocks.STONE.getDefaultState();      // nothing solid → stone
+                    yield Blocks.STONE.getDefaultState();
                 }
                 yield best.getDefaultState();
             }
