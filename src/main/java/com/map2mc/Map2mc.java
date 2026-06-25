@@ -6,6 +6,8 @@ import com.map2mc.film.DirectorCamera;
 import com.map2mc.orbit.LastBuild;
 import com.map2mc.orbit.OrbitFlight;
 import com.map2mc.preview.PreviewManager;
+import com.map2mc.recording.RecordingManager;
+import com.map2mc.recording.ReplayBridge;
 import com.map2mc.undo.UndoManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -48,6 +50,12 @@ public class Map2mc implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(PreviewManager::onEndServerTick);
         // Phase 3: advance any in-progress mod-driven orbit camera fly.
         ServerTickEvents.END_SERVER_TICK.register(OrbitFlight::onEndServerTick);
+        // Auto-capture: watch a /map2mc record build and stop the ServerReplay capture when it finishes.
+        // Registered AFTER the queue tick so it sees the build leave the queue on the completing tick.
+        ServerTickEvents.END_SERVER_TICK.register(RecordingManager::onEndServerTick);
+        // Once the server is up (ServerReplay's config exists by now), point its recordings at the
+        // configured output dir (no-op unless recordOutputDir is set + ServerReplay is installed).
+        ServerLifecycleEvents.SERVER_STARTED.register(ReplayBridge::applyOutputDir);
         ServerLifecycleEvents.SERVER_STOPPING.register(BuildQueueManager::onServerStopping);
         // Drop transient placement state when the server stops so it can't leak across world reloads.
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
@@ -55,6 +63,7 @@ public class Map2mc implements ModInitializer {
             UndoManager.clear();
             OrbitFlight.clearAll();
             DirectorCamera.clearAll();
+            RecordingManager.clearAll(server);
             LastBuild.clear();
         });
 

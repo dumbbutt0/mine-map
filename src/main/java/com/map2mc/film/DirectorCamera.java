@@ -135,24 +135,27 @@ public final class DirectorCamera {
     }
 
     /**
-     * End the shot for {@code p}. Default ({@code filmEndStaysSpectator}): leave them FLOATING in
-     * spectator exactly where the camera stopped — to finish the shot by hand — making no teleport or
-     * gamemode change (spectator never falls, so this is also death-safe; they {@code /gamemode} back
-     * themselves). Otherwise: teleport them back to their pre-film spot on the GROUND, clear fall
-     * distance, THEN restore their gamemode — landing them before leaving spectator is what stops the
-     * camera's altitude from becoming a lethal fall the instant survival is restored.
+     * End the shot for {@code p} by returning them to their PRE-FILM gamemode (default), so they're not
+     * stranded in spectator (which can't land on the ground). For a fall-safe prior mode (CREATIVE /
+     * SPECTATOR — no fall damage) the gamemode is restored IN PLACE at the final camera pose, so they
+     * can simply fly/descend down. For a fall-damage-able prior mode (SURVIVAL / ADVENTURE) they are
+     * first teleported back to their pre-film GROUND spot, so restoring at the camera's altitude isn't a
+     * lethal fall. Opt-in {@code filmEndStaysSpectator} instead leaves them floating in spectator to
+     * finish the shot by hand (they {@code /gamemode} back themselves).
      */
     private static void restorePlayer(ServerPlayerEntity p, Film f) {
         if (Map2mcConfig.filmEndStaysSpectator) {
-            return; // leave the player in spectator at the final camera pose to finish the shot
+            return; // opt-in: leave the player in spectator at the final camera pose
         }
-        if (f.startPos != null) {
+        boolean fallSafe = f.prevMode == GameMode.CREATIVE || f.prevMode == GameMode.SPECTATOR;
+        if (!fallSafe && f.startPos != null) {
+            // survival/adventure: land them at the pre-film ground spot before restoring (no fall death)
             p.teleport(f.world, f.startPos.x, f.startPos.y, f.startPos.z,
                     EnumSet.noneOf(PositionFlag.class), f.startYaw, f.startPitch, false);
+            p.setOnGround(true);
         }
-        p.fallDistance = 0; // the teleport already resets it; explicit belt-and-suspenders
-        p.setOnGround(true);
-        p.changeGameMode(f.prevMode);
+        p.fallDistance = 0;
+        p.changeGameMode(f.prevMode); // creative restored in place → they can fly back down and land
     }
 
     public static void onEndServerTick(MinecraftServer server) {

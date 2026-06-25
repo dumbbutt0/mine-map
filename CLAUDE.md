@@ -83,11 +83,12 @@ never owns the camera or recording.
     pose from `FilmDirector.directorPose(progress, frontier, params, …)` (pure, unit-tested),
     teleports the spectator player there (chunk loading), and publishes prev+cur pose to a
     `volatile film/DirectorState`. A console/headless `film` runs LOG-ONLY (no camera) — the
-    headless gate's path. **Film end (`restorePlayer`):** default `filmEndStaysSpectator` LEAVES the
-    player floating in spectator exactly where the camera stopped (to finish the shot by hand — no
-    teleport/gamemode change; spectator never falls, so it's death-safe; they `/gamemode` back). Set it
-    false for the old behaviour: teleport back to the on-the-ground pre-film spot (+ clear fall distance)
-    BEFORE leaving spectator (restoring survival at altitude was the old "fell from a high place" death).
+    headless gate's path. **Film end (`restorePlayer`):** default (`filmEndStaysSpectator=false`) RETURNS
+    the player to their pre-film gamemode so they aren't stranded in spectator (which can't land):
+    fall-safe modes (CREATIVE/SPECTATOR) are restored IN PLACE at the final pose (fly/descend down
+    yourself); fall-damage-able modes (SURVIVAL/ADVENTURE) teleport to the pre-film ground spot first
+    (+ clear fall distance) so restoring at altitude isn't the old "fell from a high place" death. Set
+    `filmEndStaysSpectator=true` to instead leave them floating in spectator to finish the shot by hand.
     The aerial camera is capped below `filmCloudCeilingY` (≈180) so the start isn't lost in cloud. The
     overhead aerial cant is
     steep-pitch-pan geometry, NOT camera roll (the pose's roll is 0); ease `filmAerialPitchDeg`/
@@ -217,6 +218,16 @@ frontier-tracking director camera; from a player = live fly, from console = log-
 arg accepts `~`: `pos` → `~`/`^` (vanilla); `rotation` → `~` (face you) or 0/90/180/270; `radius` →
 `~` (dynamic) or a number; `duration` → `~` (current pace) or seconds. (Trailing args are parsed
 from a greedy string because Brigadier int/word args can't read a bare `~`.)
+`record <path> [pos] [rotation] [duration]` / `record stop` (build it with the cinematic director camera
+engaged AND auto-capture to a `.mcpr` via the external **ServerReplay** mod — command-dispatch bridge in
+`com.map2mc.recording`, no compile-time dep, graceful no-op if absent; the site-prep is PACED
+(`recordSitePrepSeconds`) so the strip + a lush biome-aware **plaza** (`com.map2mc.terrain.PlazaDecorator`
+/ `PlazaPalette`: lawn + paths + trees + flowers over the cleared disc minus the footprint) are visible
+in the timelapse; `.mcpr` + orbit table saved under `recordOutputDir` (map2mc points ServerReplay's
+`chunk_recording_path` there via `ReplayBridge.applyOutputDir`)). ·
+`scout <path> [radius]` (sample a grid of nearby sites via `TerrainSampler`, rank with the pure
+`com.map2mc.terrain.SiteScore` — flatness/no-water/green-biome/shallow-bridging — and record-build at the
+best, so builds never look plopped). See RECORDING.md §H.
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 `get` / `set <key> <value>` — live-tune the `Map2mcConfig` knobs while dialing in the framing (no
 rebuild): `get` lists every knob + current value; `set` validates against a sane range, assigns, and

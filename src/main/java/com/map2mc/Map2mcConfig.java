@@ -46,7 +46,7 @@ public final class Map2mcConfig {
     /** View (render) distance in chunks to raise the client to WHILE filming, restored on stop.
      *  Reduces "build lost in fog/clip" — but shader volumetric/distance fog is the user's Iris
      *  setting (see RECORDING.md §E), which the mod can't and shouldn't override. */
-    public static volatile int filmViewDistance = 24;
+    public static volatile int filmViewDistance = 32;
 
     // ── V2-1: aspect-aware vertical + hero framing ───────────────────────────────────────────────
     // The mod CANNOT resize the game window, so the framing is sized for a TARGET aspect the user
@@ -86,15 +86,17 @@ public final class Map2mcConfig {
      *  Combined with the area-profile transition (cut once BOTH the base is done AND this is reached). */
     public static volatile double filmAerialUntilHeightFrac = 0.12;
 
-    /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). Eased from 55
-     *  to keep the steep-pitch-pan horizon calmer; lower further (or drop filmAerialTurns) live to taste. */
-    public static volatile double filmAerialPitchDeg = 50.0;
+    /** Downward elevation (degrees) of the aerial look (high oblique, not flat top-down). Eased 55→50→38
+     *  to keep the steep-pitch-pan horizon calmer (the canted/spinning aerial in early takes); lower
+     *  further (or drop filmAerialTurns) live to taste. */
+    public static volatile double filmAerialPitchDeg = 38.0;
 
     /** Zoom-out multiplier on the aerial footprint framing. */
     public static volatile double filmAerialMargin = 1.10;
 
-    /** Azimuth rotation (turns) across the aerial phase, so it drifts rather than sitting static. */
-    public static volatile double filmAerialTurns = 0.30;
+    /** Azimuth rotation (turns) across the aerial phase, so it drifts rather than sitting static. Eased
+     *  0.30→0.12 so the overhead establishing shot drifts gently instead of visibly spinning. */
+    public static volatile double filmAerialTurns = 0.12;
 
     /** Area-profile handoff: a layer counts as "narrowed" (base→vertical) below this fraction of the
      *  widest layer. The aerial→orbit cut fires at the cumulative-block progress of that transition;
@@ -106,10 +108,10 @@ public final class Map2mcConfig {
      *  the clouds" (vanilla clouds sit at y≈192). */
     public static volatile int filmCloudCeilingY = 180;
 
-    /** When a film ends (completion or {@code film stop}), leave the player FLOATING in spectator where
-     *  the camera stopped — to finish the shot — instead of teleporting them back to the build base. The
-     *  no-fall safety holds either way (spectator never falls). false = old teleport-home + restore. */
-    public static volatile boolean filmEndStaysSpectator = true;
+    /** When a film/record ends, leave the player FLOATING in spectator (true), or RETURN them to their
+     *  pre-film gamemode (false, the default — creative restored in place so they can fly down and land;
+     *  survival lands at the pre-film ground spot first). Set true to finish a shot by hand in spectator. */
+    public static volatile boolean filmEndStaysSpectator = false;
 
     // ── Terrain-aware foundation (normal generated worlds) ───────────────────────────────────────
     // In a non-superflat world the build samples the live ground and lays a foundation that grounds it
@@ -130,6 +132,27 @@ public final class Map2mcConfig {
     /** Blocks beyond the footprint the foundation also LEVELS (clear terrain + vegetation, fill to grade)
      *  — a plaza border so no terrain wall or tree canopy hugs/looms over the build. */
     public static volatile int foundationClearMargin = 3;
+
+    // ── Auto-capture (ServerReplay, via /map2mc record) ──────────────────────────────────────────
+    /** Extra chunks of surrounding scenery captured around the build footprint by {@code /map2mc record}
+     *  (a larger value frames more landscape in the recorded .mcpr). */
+    public static volatile int recordChunkMargin = 4;
+
+    /** Seconds to spend VISIBLY laying the site-prep (strip + plaza) during {@code /map2mc record}, so
+     *  it's part of the timelapse instead of an instant blink. 0 = instant (hero/film always use 0). */
+    public static volatile int recordSitePrepSeconds = 12;
+
+    /** Absolute dir to save recordings under. When set, map2mc points ServerReplay's
+     *  chunk_recording_path here (auto-patched at server start) and writes its orbit tables here too.
+     *  Empty = ServerReplay's default + {@code <gameDir>/map2mc/orbits}. Baked to the user's Videos dir. */
+    public static volatile String recordOutputDir = "C:/Users/dumbb/Videos/map2mc";
+
+    // ── Plaza landscaping (lush grounds around the build, not an empty circle) ────────────────────
+    /** Landscape the cleared plaza (grass lawn + path motif + biome trees + flowers) instead of a bare disc. */
+    public static volatile boolean plazaDecorate = true;
+
+    /** Concentric rings of trees planted around the build on the plaza (0 = none). */
+    public static volatile int plazaTreeRings = 2;
 
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
@@ -218,7 +241,12 @@ public final class Map2mcConfig {
             new Knob("foundationSlopeThreshold", () -> String.valueOf(foundationSlopeThreshold), v -> foundationSlopeThreshold = intIn(v, 0, 256)),
             new Knob("foundationMaxBridge", () -> String.valueOf(foundationMaxBridge), v -> foundationMaxBridge = intIn(v, 1, 256)),
             new Knob("foundationStyle", () -> foundationStyle, v -> foundationStyle = strIn(v, "auto", "stone", "cobble", "dirt")),
-            new Knob("foundationClearMargin", () -> String.valueOf(foundationClearMargin), v -> foundationClearMargin = intIn(v, 0, 64)));
+            new Knob("foundationClearMargin", () -> String.valueOf(foundationClearMargin), v -> foundationClearMargin = intIn(v, 0, 64)),
+            new Knob("recordChunkMargin", () -> String.valueOf(recordChunkMargin), v -> recordChunkMargin = intIn(v, 0, 32)),
+            new Knob("recordSitePrepSeconds", () -> String.valueOf(recordSitePrepSeconds), v -> recordSitePrepSeconds = intIn(v, 0, 600)),
+            new Knob("recordOutputDir", () -> recordOutputDir.isEmpty() ? "(default)" : recordOutputDir, v -> recordOutputDir = v.trim()),
+            new Knob("plazaDecorate", () -> String.valueOf(plazaDecorate), v -> plazaDecorate = boolIn(v)),
+            new Knob("plazaTreeRings", () -> String.valueOf(plazaTreeRings), v -> plazaTreeRings = intIn(v, 0, 6)));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {

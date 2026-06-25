@@ -49,9 +49,16 @@ public final class OrbitExporter {
     /** Render + write the table under {@code <gameDir>/map2mc/orbits/}; returns the file path. */
     public static Path export(List<OrbitKeyframe> kfs, Orbit.Params p, int renderSeconds,
                               LastBuild.Info build) throws IOException {
-        Files.createDirectories(SchemPaths.orbitDir());
+        return export(kfs, p, renderSeconds, build, null);
+    }
+
+    /** As {@link #export}, but written under {@code dir} when non-null (else the default orbits dir). */
+    public static Path export(List<OrbitKeyframe> kfs, Orbit.Params p, int renderSeconds,
+                              LastBuild.Info build, Path dir) throws IOException {
+        Path target = dir != null ? dir : SchemPaths.orbitDir();
+        Files.createDirectories(target);
         String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        Path out = SchemPaths.orbitDir().resolve("orbit-" + stamp + ".txt");
+        Path out = target.resolve("orbit-" + stamp + ".txt");
         Files.writeString(out, render(kfs, p, renderSeconds, build));
         return out;
     }
