@@ -102,6 +102,15 @@ public final class Map2mcConfig {
      *  transition). Lower → only a sharper narrowing counts; the transition Y itself is set by the build. */
     public static volatile double filmTransitionFrac = 0.40;
 
+    /** Absolute Y the aerial establishing camera is capped below, so the build start isn't "mixed into
+     *  the clouds" (vanilla clouds sit at y≈192). */
+    public static volatile int filmCloudCeilingY = 180;
+
+    /** When a film ends (completion or {@code film stop}), leave the player FLOATING in spectator where
+     *  the camera stopped — to finish the shot — instead of teleporting them back to the build base. The
+     *  no-fall safety holds either way (spectator never falls). false = old teleport-home + restore. */
+    public static volatile boolean filmEndStaysSpectator = true;
+
     // ── Terrain-aware foundation (normal generated worlds) ───────────────────────────────────────
     // In a non-superflat world the build samples the live ground and lays a foundation that grounds it
     // at local grade (bridge low side, clear high side) so it sits naturally instead of floating.
@@ -203,6 +212,8 @@ public final class Map2mcConfig {
             new Knob("filmAerialMargin", () -> String.valueOf(filmAerialMargin), v -> filmAerialMargin = dblIn(v, 0.5, 4)),
             new Knob("filmAerialTurns", () -> String.valueOf(filmAerialTurns), v -> filmAerialTurns = dblIn(v, 0, 4)),
             new Knob("filmTransitionFrac", () -> String.valueOf(filmTransitionFrac), v -> filmTransitionFrac = dblIn(v, 0.01, 1)),
+            new Knob("filmCloudCeilingY", () -> String.valueOf(filmCloudCeilingY), v -> filmCloudCeilingY = intIn(v, 64, 320)),
+            new Knob("filmEndStaysSpectator", () -> String.valueOf(filmEndStaysSpectator), v -> filmEndStaysSpectator = boolIn(v)),
             new Knob("foundationEnabled", () -> String.valueOf(foundationEnabled), v -> foundationEnabled = boolIn(v)),
             new Knob("foundationSlopeThreshold", () -> String.valueOf(foundationSlopeThreshold), v -> foundationSlopeThreshold = intIn(v, 0, 256)),
             new Knob("foundationMaxBridge", () -> String.valueOf(foundationMaxBridge), v -> foundationMaxBridge = intIn(v, 1, 256)),

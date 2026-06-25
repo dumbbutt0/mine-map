@@ -37,12 +37,14 @@ never owns the camera or recording.
     under the footprint (`TerrainSampler` — force-gen the footprint chunks, then `getTopY(MOTION_BLOCKING_NO_LEAVES)`
     + biome/fluid per column → `TerrainSample`: min/median/max/slope + water/void flag), sites the build
     base at the **median grade**, and generates a foundation (`FoundationGenerator`, pure: bridge DOWN
-    where ground < base, clear terrain AND vegetation/leaves ABOVE up to WORLD_SURFACE over the footprint
-    **+ a `foundationClearMargin` border** (plaza — no wall/canopy looming over the build), material by
-    biome) that's **combined with the
-    structure into one ascending-Y job** — the foundation builds first as part of the timelapse. The
-    **structure is re-resolved at the grade Y and otherwise untouched** (resolver unchanged); the
-    area-profile handoff is computed from the combined placements (`AreaProfile.areaPerLayer(List)`).
+    where ground < base, clear terrain AND vegetation/leaves ABOVE up to WORLD_SURFACE) over a **CIRCULAR
+    plaza** (the sampler squares the region so an inscribed circle of radius `circumscribed footprint +
+    foundationClearMargin` contains the build — a round cleared spot like the reference, not a rectangle).
+    The foundation is submitted as a **separate FAST pre-job** that lands BEFORE the filmed structure (FIFO,
+    high bpt) — so the trees/terrain are cleared *first* and the timelapse builds on a clean site (no canopy
+    in the shot). The **structure is re-resolved at the grade Y and otherwise untouched** (resolver
+    unchanged) and is the ONLY filmed build; `runFilm` tracks it via `BuildQueue.byId(heroId)` (the
+    foundation sits ahead at the head). The area-profile handoff is the structure's own profile.
     Superflat / `foundationEnabled=false` → drops at the anchor as before. Steep/deep/water → warns +
     best-effort (capped at `foundationMaxBridge`). Knobs: `foundationEnabled`, `foundationSlopeThreshold`,
     `foundationMaxBridge`, `foundationStyle` (auto|stone|cobble|dirt).
@@ -81,10 +83,13 @@ never owns the camera or recording.
     pose from `FilmDirector.directorPose(progress, frontier, params, …)` (pure, unit-tested),
     teleports the spectator player there (chunk loading), and publishes prev+cur pose to a
     `volatile film/DirectorState`. A console/headless `film` runs LOG-ONLY (no camera) — the
-    headless gate's path. **Safe restore:** the `Film` remembers the player's pre-film pose; on stop
-    AND on completion `restorePlayer` teleports them back to that on-the-ground spot (+ clears fall
-    distance) BEFORE leaving spectator — otherwise restoring survival at the camera's altitude drops
-    them to their death (the old "fell from a high place" ending). The overhead aerial cant is
+    headless gate's path. **Film end (`restorePlayer`):** default `filmEndStaysSpectator` LEAVES the
+    player floating in spectator exactly where the camera stopped (to finish the shot by hand — no
+    teleport/gamemode change; spectator never falls, so it's death-safe; they `/gamemode` back). Set it
+    false for the old behaviour: teleport back to the on-the-ground pre-film spot (+ clear fall distance)
+    BEFORE leaving spectator (restoring survival at altitude was the old "fell from a high place" death).
+    The aerial camera is capped below `filmCloudCeilingY` (≈180) so the start isn't lost in cloud. The
+    overhead aerial cant is
     steep-pitch-pan geometry, NOT camera roll (the pose's roll is 0); ease `filmAerialPitchDeg`/
     `filmAerialTurns` to calm it.
   - **Client smoothing** (`client/mixin/CameraUpdateMixin` — the mod's FIRST mixin): overrides

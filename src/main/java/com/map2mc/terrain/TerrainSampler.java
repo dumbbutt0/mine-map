@@ -31,14 +31,20 @@ public final class TerrainSampler {
     }
 
     /**
-     * @param footprint the build's XZ footprint; the sampled/leveled {@code region} is this grown by
-     *                  {@code margin} on each side. Grids are row-major over {@code region}
-     *                  ({@code index = (z-minZ)*sizeX + (x-minX)}); the {@link TerrainSample} (grade) is
-     *                  taken over the INNER footprint only so the margin doesn't skew the base Y.
+     * @param footprint the build's XZ footprint; the sampled/leveled {@code region} is a SQUARE centred
+     *                  on the footprint with half-side = circumscribed footprint radius + {@code margin},
+     *                  so the generator's inscribed-circle plaza contains the footprint. Grids are
+     *                  row-major over {@code region} ({@code index = (z-minZ)*sizeX + (x-minX)}); the
+     *                  {@link TerrainSample} (grade) is taken over the INNER footprint only.
      */
     public static Result sample(ServerWorld world, Bounds footprint, int margin, String style) {
-        Bounds region = new Bounds(footprint.minX() - margin, footprint.minY(), footprint.minZ() - margin,
-                footprint.maxX() + margin, footprint.maxY(), footprint.maxZ() + margin);
+        // Square region centred on the footprint, sized so the inscribed circle (the round plaza the
+        // generator clears) contains the whole footprint: radius = circumscribed footprint radius + margin.
+        int cxC = (footprint.minX() + footprint.maxX()) / 2;
+        int czC = (footprint.minZ() + footprint.maxZ()) / 2;
+        int r = (int) Math.ceil(Math.hypot(footprint.sizeX() / 2.0, footprint.sizeZ() / 2.0)) + margin;
+        Bounds region = new Bounds(cxC - r, footprint.minY(), czC - r,
+                cxC + r, footprint.maxY(), czC + r);
         for (int cx = region.minX() >> 4; cx <= region.maxX() >> 4; cx++) {
             for (int cz = region.minZ() >> 4; cz <= region.maxZ() >> 4; cz++) {
                 world.getChunk(cx, cz); // FULL generation; getTopY does not generate on demand

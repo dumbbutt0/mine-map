@@ -166,7 +166,7 @@ class FilmDirectorTest {
         Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
         int w = 16, h = 9;
         double fov = 70, pitch = 55, margin = 1.10, clearance = 8, currentTop = -40;
-        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, w, h, fov, pitch, margin, currentTop, clearance, 0, 0);
+        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, w, h, fov, pitch, margin, currentTop, clearance, 10_000, 0, 0);
 
         double cx = 43, cz = 42.5; // footprint centre
         double tanH = ((double) w / h) * Math.tan(Math.toRadians(fov) / 2.0);
@@ -184,16 +184,28 @@ class FilmDirectorTest {
         // the clearance clamp must still put the camera above the current top.
         Bounds full = new Bounds(0, 0, 0, 19, 200, 19);
         double currentTop = 60, clearance = 8;
-        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, currentTop, clearance, 0, 0);
+        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, currentTop, clearance, 10_000, 0, 0);
         assertTrue(k.y() >= currentTop + clearance - 1e-6, "clamp keeps the camera above the build top");
+        assertTrue(k.pitch() > 0, "still looks down");
+    }
+
+    @Test
+    void aerialCappedBelowCloudCeiling() {
+        // A wide footprint whose pitch-driven height would punch through the clouds; the cap holds it
+        // below the ceiling while still above the (low-phase) build top.
+        Bounds full = new Bounds(0, 0, 0, 200, 100, 200);
+        double currentTop = 10, clearance = 8, cloud = 80;
+        OrbitKeyframe k = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, currentTop, clearance, cloud, 0, 0);
+        assertTrue(k.y() <= cloud + 1e-6, "aerial camera capped below the cloud ceiling, got " + k.y());
+        assertTrue(k.y() >= currentTop + clearance - 1e-6, "but still above the build top");
         assertTrue(k.pitch() > 0, "still looks down");
     }
 
     @Test
     void aerialAzimuthRotatesWithFrac() {
         Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
-        OrbitKeyframe a = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, -40, 8, 0, 0);
-        OrbitKeyframe b = FilmDirector.aerialPose(full, 0.25, 16, 9, 70, 55, 1.10, -40, 8, 0, 0);
+        OrbitKeyframe a = FilmDirector.aerialPose(full, 0.0, 16, 9, 70, 55, 1.10, -40, 8, 10_000, 0, 0);
+        OrbitKeyframe b = FilmDirector.aerialPose(full, 0.25, 16, 9, 70, 55, 1.10, -40, 8, 10_000, 0, 0);
         double cx = 43, cz = 42.5;
         assertEquals(Math.hypot(a.x() - cx, a.z() - cz), Math.hypot(b.x() - cx, b.z() - cz), 1e-3,
                 "same framing radius");
@@ -206,7 +218,7 @@ class FilmDirectorTest {
         // so nobody "fixes" the cant by introducing actual roll.
         Bounds full = new Bounds(0, -60, 0, 85, 162, 84);
         for (double frac = 0.0; frac <= 1.0; frac += 0.2) {
-            OrbitKeyframe k = FilmDirector.aerialPose(full, frac, 16, 9, 70, 50, 1.10, -40, 8, 0, 0);
+            OrbitKeyframe k = FilmDirector.aerialPose(full, frac, 16, 9, 70, 50, 1.10, -40, 8, 10_000, 0, 0);
             assertEquals(0f, k.roll(), 0f, "aerial pose carries no roll");
         }
     }

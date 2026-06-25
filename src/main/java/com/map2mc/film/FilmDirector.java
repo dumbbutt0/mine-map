@@ -101,9 +101,9 @@ public final class FilmDirector {
      * <ul>
      *   <li>{@code camRadius = (horizontalRadius / tan(hFov/2))·margin} — the HORIZONTAL distance that
      *       frames the footprint width (same as the V2-1 {@code dW} term).</li>
-     *   <li>{@code camY = max(baseY + camRadius·tan(pitchDeg), currentTop + clearance)} — the elevation
-     *       gives the requested high-oblique look, and the clamp guarantees the camera is ABOVE the
-     *       build top so it always looks DOWN on it (insurance for taller/thinner builds).</li>
+     *   <li>{@code camY = max(currentTop + clearance, min(baseY + camRadius·tan(pitchDeg), cloudCeiling))}
+     *       — the pitch sets the high-oblique elevation, capped below the cloud layer so the start isn't
+     *       lost in cloud, but never below the build top so it always looks DOWN on the build.</li>
      *   <li>Aim at the footprint centre at base level {@code (cx, baseY, cz)} → a downward look.</li>
      *   <li>{@code frac} rotates the azimuth slowly across the aerial phase (caller scales by turns).</li>
      * </ul>
@@ -111,7 +111,7 @@ public final class FilmDirector {
     public static OrbitKeyframe aerialPose(Bounds fullBounds, double frac,
                                            int aspectW, int aspectH, double baseFovDeg, double pitchDeg,
                                            double margin, double currentTop, double clearance,
-                                           long renderMs, long buildMs) {
+                                           double cloudCeiling, long renderMs, long buildMs) {
         double cx = (fullBounds.minX() + fullBounds.maxX() + 1) / 2.0;
         double cz = (fullBounds.minZ() + fullBounds.maxZ() + 1) / 2.0;
         double baseY = fullBounds.minY();
@@ -121,7 +121,9 @@ public final class FilmDirector {
         double tanH = ((double) aspectW / aspectH) * tanV;
         double camRadius = Math.max(4.0, (horizRadius / tanH) * margin);
         double camYByPitch = baseY + camRadius * Math.tan(Math.toRadians(pitchDeg));
-        double camY = Math.max(camYByPitch, currentTop + clearance);
+        // Cap the pitch-driven height below the cloud layer so the start isn't "mixed into the clouds",
+        // but never below the build top + clearance (the aerial must still look DOWN on the build).
+        double camY = Math.max(currentTop + clearance, Math.min(camYByPitch, cloudCeiling));
         return Orbit.poseAt(cx, cz, baseY, camRadius, camY, camY, frac, renderMs, buildMs);
     }
 

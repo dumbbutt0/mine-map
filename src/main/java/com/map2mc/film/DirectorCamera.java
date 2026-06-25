@@ -135,11 +135,17 @@ public final class DirectorCamera {
     }
 
     /**
-     * End the shot for {@code p}: teleport them back to their pre-film spot on the GROUND, clear fall
-     * distance, THEN restore their gamemode. Order matters — landing them before leaving spectator is
-     * what stops the camera's altitude from becoming a lethal fall the instant survival is restored.
+     * End the shot for {@code p}. Default ({@code filmEndStaysSpectator}): leave them FLOATING in
+     * spectator exactly where the camera stopped — to finish the shot by hand — making no teleport or
+     * gamemode change (spectator never falls, so this is also death-safe; they {@code /gamemode} back
+     * themselves). Otherwise: teleport them back to their pre-film spot on the GROUND, clear fall
+     * distance, THEN restore their gamemode — landing them before leaving spectator is what stops the
+     * camera's altitude from becoming a lethal fall the instant survival is restored.
      */
     private static void restorePlayer(ServerPlayerEntity p, Film f) {
+        if (Map2mcConfig.filmEndStaysSpectator) {
+            return; // leave the player in spectator at the final camera pose to finish the shot
+        }
         if (f.startPos != null) {
             p.teleport(f.world, f.startPos.x, f.startPos.y, f.startPos.z,
                     EnumSet.noneOf(PositionFlag.class), f.startYaw, f.startPitch, false);
@@ -216,7 +222,7 @@ public final class DirectorCamera {
             k = FilmDirector.aerialPose(f.fullBounds, aerialFrac,
                     Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
                     Map2mcConfig.filmAerialPitchDeg, Map2mcConfig.filmAerialMargin,
-                    clampedTop, AERIAL_CLEARANCE, 0L, f.buildMs);
+                    clampedTop, AERIAL_CLEARANCE, Map2mcConfig.filmCloudCeilingY, 0L, f.buildMs);
             phase = "aerial";
             logRadius = Math.hypot(k.x() - cx, k.z() - cz);
             logAimY = baseY;

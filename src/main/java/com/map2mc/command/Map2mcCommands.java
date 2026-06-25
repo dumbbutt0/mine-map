@@ -61,7 +61,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -323,12 +322,14 @@ public final class Map2mcCommands {
             }
 
             // Terrain-aware foundation: in a NORMAL (non-superflat) world, sit the build at local grade
-            // on a generated foundation (bridge the low side, clear the high side) and COMBINE it with
-            // the structure into one ascending-Y job — the foundation, being lower, builds first as part
-            // of the timelapse. The structure is re-resolved at the grade Y (the resolver is unchanged).
-            // Superflat / foundationEnabled=false → drop at the anchor exactly as before.
-            List<Placement> placements = structure;
+            // and lay the foundation (clear trees/level a CIRCULAR plaza + bridge to grade) as a SEPARATE
+            // FAST pre-job that lands BEFORE the filmed structure — so the timelapse starts on a clean,
+            // cleared site (no canopy in the shot; "the spot is easily created"). The structure is
+            // re-resolved at the grade Y (resolver unchanged) and is the ONLY filmed build. Superflat /
+            // foundationEnabled=false → drop at the anchor exactly as before.
+            List<Placement> placements = structure;        // the FILMED build
             Bounds bounds = r.build().bounds();
+            List<Placement> foundation = null;             // site-prep pre-job (clear + level + pad), if any
             boolean superflat = world.getChunkManager().getChunkGenerator() instanceof FlatChunkGenerator;
             if (Map2mcConfig.foundationEnabled && !superflat) {
                 TerrainSampler.Result ts = TerrainSampler.sample(world, bounds,
@@ -336,17 +337,11 @@ public final class Map2mcCommands {
                 final TerrainSample s = ts.sample();
                 final int baseY = s.medianY();
                 final boolean desert = ts.desert();
-                List<Placement> grounded = load(name,
-                        new BlockPos(anchor.getX(), baseY, anchor.getZ()), mode, rot).build().placements();
-                // Foundation over the footprint + margin: bridge below grade, clear terrain AND vegetation
-                // above (up to WORLD_SURFACE) so nothing looms over/through the build.
-                List<Placement> foundation = FoundationGenerator.generate(ts.region(), baseY,
+                placements = load(name, new BlockPos(anchor.getX(), baseY, anchor.getZ()), mode, rot)
+                        .build().placements();              // structure re-resolved at grade = filmed build
+                bounds = Bounds.fromPlacements(placements);
+                foundation = FoundationGenerator.generate(ts.region(), baseY,
                         ts.solidSurf(), ts.vegTop(), ts.material(), Map2mcConfig.foundationMaxBridge);
-                List<Placement> combined = new ArrayList<>(foundation.size() + grounded.size());
-                combined.addAll(foundation);
-                combined.addAll(grounded);
-                placements = combined;
-                bounds = Bounds.fromPlacements(combined);
                 if (desert || s.hasWaterOrVoid() || s.maxBridgeDepth(baseY) > Map2mcConfig.foundationMaxBridge
                         || s.slope() > Map2mcConfig.foundationSlopeThreshold) {
                     src.sendFeedback(() -> Text.literal(String.format(
@@ -357,9 +352,18 @@ public final class Map2mcCommands {
                 }
             }
 
-            int count = placements.size();
+            // Lay the foundation as a FAST pre-job FIRST (FIFO → it builds before the structure), so the
+            // site is prepped before the filmed timelapse begins. It is NOT the filmed job.
+            if (foundation != null && !foundation.isEmpty()) {
+                int fbpt = Math.max(2000, (foundation.size() + 3) / 4); // ~a few ticks: "easily created"
+                BuildSettings fset = new BuildSettings(fbpt, Block.NOTIFY_LISTENERS, true);
+                BuildQueueManager.get(world).submit(foundation, new AscendingYStrategy(),
+                        OrderingContext.fromPlacements(foundation), fset, "foundation " + name);
+            }
+
+            int count = placements.size();                  // the structure (the filmed build)
             // Duration-driven pacing is the default; /map2mc pace sets the policy, /map2mc speed
-            // still live-retunes after submit. blocksPerTick is derived from the (combined) block count.
+            // still live-retunes after submit. blocksPerTick is derived from the structure block count.
             int bpt = PaceSetting.resolveBpt(count);
             BuildSettings settings = new BuildSettings(bpt, Block.NOTIFY_LISTENERS, true);
             long id = BuildQueueManager.get(world).submit(placements, new AscendingYStrategy(),
@@ -367,8 +371,7 @@ public final class Map2mcCommands {
             int eta = Pacing.estimateSeconds(count, bpt);
             // Remember this build so /map2mc orbit and /map2mc film can frame a camera around it.
             LastBuild.set(world, bounds, eta, "hero " + name);
-            // Handoff from the ACTUAL submitted blocks (foundation + structure), so the area-profile cut
-            // fires at the foundation→structure narrowing (equivalent to the schem when no foundation).
+            // Handoff from the structure's own per-layer profile (the foundation is now a separate job).
             double handoff = AreaProfile.handoffProgress(
                     AreaProfile.areaPerLayer(placements), Map2mcConfig.filmTransitionFrac);
             return new HeroSubmit(id, count, r.data(), bounds, eta, bpt, handoff);
@@ -456,7 +459,8 @@ public final class Map2mcCommands {
         if (h == null) {
             return 0;
         }
-        BuildJob job = BuildQueueManager.get(world).active();
+        // Track the STRUCTURE job specifically (a foundation pre-job may sit ahead of it at the queue head).
+        BuildJob job = BuildQueueManager.get(world).byId(h.id());
         if (job == null) {
             src.sendError(Text.literal("map2mc: no active build to film"));
             return 0;

@@ -62,6 +62,17 @@ public final class BuildQueue {
         return jobs.peekFirst();
     }
 
+    /** The queued/active job with this id, or null. Lets the film track a specific job (e.g. the
+     *  structure) even when a faster pre-job (the foundation) sits ahead of it at the head. */
+    public BuildJob byId(long id) {
+        for (BuildJob j : jobs) {
+            if (j.id() == id) {
+                return j;
+            }
+        }
+        return null;
+    }
+
     public boolean pauseActive() {
         BuildJob j = jobs.peekFirst();
         if (j == null) return false;

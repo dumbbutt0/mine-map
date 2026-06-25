@@ -47,4 +47,24 @@ class FoundationGeneratorTest {
         assertEquals(10, cells.size(), "fill capped to maxBridge, not down to y=0");
         assertTrue(cells.stream().allMatch(c -> c.pos().getY() >= 54 && c.fill()));
     }
+
+    @Test
+    void clearsACircularPlazaNotTheCorners() {
+        // 5×5 region → inscribed circle radius 2.5 centred at (2.5,2.5): the four corners fall outside.
+        Bounds region = new Bounds(0, 0, 0, 4, 100, 4);
+        int[] solid = new int[25];
+        int[] veg = new int[25];
+        Arrays.fill(solid, 64);
+        Arrays.fill(veg, 65); // one clear cell (y=64) per column INSIDE the circle
+        List<FoundationGenerator.Cell> cells = FoundationGenerator.plan(region, 64, solid, veg, 24);
+
+        assertEquals(21, cells.size(), "circle keeps 21 of 25 columns (the 4 corners are outside)");
+        for (int[] corner : new int[][]{{0, 0}, {0, 4}, {4, 0}, {4, 4}}) {
+            int cornerX = corner[0];
+            int cornerZ = corner[1];
+            assertTrue(cells.stream().noneMatch(c -> c.pos().getX() == cornerX && c.pos().getZ() == cornerZ),
+                    "corner (" + cornerX + "," + cornerZ + ") is outside the circle → not cleared");
+        }
+        assertTrue(cells.stream().anyMatch(c -> c.pos().getX() == 2 && c.pos().getZ() == 2), "centre cleared");
+    }
 }

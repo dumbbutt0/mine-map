@@ -40,8 +40,19 @@ public final class FoundationGenerator {
     public static List<Cell> plan(Bounds region, int baseY, int[] solidSurf, int[] vegTop, int maxBridge) {
         List<Cell> out = new ArrayList<>();
         int sizeX = region.sizeX();
+        // Clear/level a DISC inscribed in the (square) region — a round plaza like the reference, not a
+        // rectangle. The sampler sizes the region so this circle comfortably contains the footprint.
+        double centerX = (region.minX() + region.maxX() + 1) / 2.0;
+        double centerZ = (region.minZ() + region.maxZ() + 1) / 2.0;
+        double radius = Math.min(region.sizeX(), region.sizeZ()) / 2.0;
+        double radiusSq = radius * radius;
         for (int z = region.minZ(); z <= region.maxZ(); z++) {
             for (int x = region.minX(); x <= region.maxX(); x++) {
+                double dx = (x + 0.5) - centerX;
+                double dz = (z + 0.5) - centerZ;
+                if (dx * dx + dz * dz > radiusSq) {
+                    continue; // outside the circle → leave the natural terrain
+                }
                 int gi = (z - region.minZ()) * sizeX + (x - region.minX());
                 int solid = solidSurf[gi];
                 int veg = vegTop[gi];
