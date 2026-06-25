@@ -137,7 +137,9 @@ director). The reference reads as **clean bright midday, clear air, vibrant gree
 clouds, a steady portrait orbit**. The common gaps and their exact fixes, biggest first:
 
 **1. Time of day — the single biggest "washed out" fix.**
-A low golden sun blooms into a pink haze and kills contrast under shaders. Lock noon before filming:
+A low golden sun blooms into a pink haze and kills contrast under shaders. **`/map2mc record` and
+`/map2mc film` now lock this automatically** (config `filmTimeOfDay`, default `noon`; e.g.
+`/map2mc set filmTimeOfDay golden`, or `off` to manage time yourself). To do it by hand:
 
 ```
 /time set noon

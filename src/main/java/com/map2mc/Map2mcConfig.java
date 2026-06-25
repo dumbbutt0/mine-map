@@ -154,6 +154,35 @@ public final class Map2mcConfig {
     /** Concentric rings of trees planted around the build on the plaza (0 = none). */
     public static volatile int plazaTreeRings = 2;
 
+    // ── Scene / style (the first field of a future swappable "style profile") ─────────────────────
+    /** Time of day to lock at the start of {@code /map2mc record} and {@code /map2mc film} (so takes
+     *  aren't shot under a low, bloomy morning sun). A keyword (noon/day/sunset/night/midnight/sunrise/
+     *  golden), a raw tick (0–24000), or {@code off} to leave the world time alone. This is a STYLE
+     *  choice (a warm look may want golden); it will move into a named style profile when that lands. */
+    public static volatile String filmTimeOfDay = "noon";
+
+    /** Resolve {@link #filmTimeOfDay} to a daytime tick, or -1 to leave time unchanged ({@code off}). */
+    public static int timeOfDayTicks() {
+        String v = filmTimeOfDay == null ? "" : filmTimeOfDay.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (v) {
+            case "off" -> -1;
+            case "day" -> 1000;
+            case "noon" -> 6000;
+            case "sunset" -> 12000;
+            case "golden" -> 12300;
+            case "night" -> 13000;
+            case "midnight" -> 18000;
+            case "sunrise" -> 23000;
+            default -> {
+                try {
+                    yield Math.floorMod(Integer.parseInt(v), 24000);
+                } catch (NumberFormatException e) {
+                    yield 6000; // unreachable (setter validates) — default to noon
+                }
+            }
+        };
+    }
+
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
     // (process-global, not persisted): they reset on relaunch, so once you like them, bake the
@@ -202,6 +231,26 @@ public final class Map2mcConfig {
         };
     }
 
+    private static final java.util.Set<String> TIME_KEYWORDS = java.util.Set.of(
+            "off", "day", "noon", "sunset", "golden", "night", "midnight", "sunrise");
+
+    /** Validate a time-of-day value: a keyword, {@code off}, or a tick in [0, 24000]. */
+    private static String timeOfDayIn(String v) {
+        String s = v.trim().toLowerCase(java.util.Locale.ROOT);
+        if (TIME_KEYWORDS.contains(s)) {
+            return s;
+        }
+        try {
+            int t = Integer.parseInt(s);
+            if (t < 0 || t > 24000) {
+                throw new IllegalArgumentException("tick must be in [0, 24000]");
+            }
+            return s;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("must be a tick [0,24000] or one of " + String.join("|", TIME_KEYWORDS));
+        }
+    }
+
     private static String strIn(String v, String... allowed) {
         String s = v.trim().toLowerCase(java.util.Locale.ROOT);
         for (String a : allowed) {
@@ -246,7 +295,8 @@ public final class Map2mcConfig {
             new Knob("recordSitePrepSeconds", () -> String.valueOf(recordSitePrepSeconds), v -> recordSitePrepSeconds = intIn(v, 0, 600)),
             new Knob("recordOutputDir", () -> recordOutputDir.isEmpty() ? "(default)" : recordOutputDir, v -> recordOutputDir = v.trim()),
             new Knob("plazaDecorate", () -> String.valueOf(plazaDecorate), v -> plazaDecorate = boolIn(v)),
-            new Knob("plazaTreeRings", () -> String.valueOf(plazaTreeRings), v -> plazaTreeRings = intIn(v, 0, 6)));
+            new Knob("plazaTreeRings", () -> String.valueOf(plazaTreeRings), v -> plazaTreeRings = intIn(v, 0, 6)),
+            new Knob("filmTimeOfDay", () -> filmTimeOfDay, v -> filmTimeOfDay = timeOfDayIn(v)));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {

@@ -342,6 +342,27 @@ public final class Map2mcCommands {
     }
 
     /**
+     * Lock the world to the configured cinematic time of day (and freeze the daylight cycle) at the start
+     * of a film/record, so takes aren't shot under a low, bloomy morning sun. Driven by
+     * {@code filmTimeOfDay} (a style choice); {@code off} skips it. Best-effort command dispatch at
+     * permission level 4 — logs on failure, never blocks the build.
+     */
+    private static void applyScene(ServerCommandSource src) {
+        int tick = Map2mcConfig.timeOfDayTicks();
+        if (tick < 0) {
+            return; // filmTimeOfDay = off → leave the world's time alone
+        }
+        try {
+            var dispatcher = src.getServer().getCommandManager().getDispatcher();
+            ServerCommandSource silent = src.getServer().getCommandSource().withSilent();
+            dispatcher.execute("gamerule doDaylightCycle false", silent);
+            dispatcher.execute("time set " + tick, silent);
+        } catch (Exception e) {
+            Map2mc.LOGGER.warn("[map2mc] could not set cinematic time of day: {}", e.toString());
+        }
+    }
+
+    /**
      * Load + submit a hero build through the shared pipeline (resolver → terrain foundation → pacing →
      * queue → LastBuild). Returns {@code null} after sending an error on failure. Reused by {@code film}
      * so the camera always tracks exactly the build {@code hero} would have made.
@@ -508,6 +529,7 @@ public final class Map2mcCommands {
                                Rotation4 rot, int radius, int durationSecs) {
         ServerWorld world = src.getWorld();
         ServerPlayerEntity player = src.getEntity() instanceof ServerPlayerEntity sp ? sp : null;
+        applyScene(src); // lock the cinematic time of day (filmTimeOfDay)
         if (durationSecs > 0) {
             PaceSetting.setDuration(durationSecs); // "film this in N seconds" (sets the build pace)
         }
@@ -604,6 +626,7 @@ public final class Map2mcCommands {
         MinecraftServer server = src.getServer();
         ServerPlayerEntity player = src.getEntity() instanceof ServerPlayerEntity sp ? sp : null;
         boolean canRecord = ReplayBridge.available(server);
+        applyScene(src); // lock the cinematic time of day (filmTimeOfDay)
         if (durationSecs > 0) {
             PaceSetting.setDuration(durationSecs); // "record this in N seconds" (sets the build pace)
         }
