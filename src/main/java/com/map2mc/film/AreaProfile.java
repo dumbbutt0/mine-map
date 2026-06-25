@@ -14,6 +14,32 @@ public final class AreaProfile {
     private AreaProfile() {
     }
 
+    /**
+     * Non-air block count per Y layer from already-positioned placements (index 0 = the lowest Y), used
+     * for the handoff when a terrain foundation is COMBINED with the structure: the wide foundation pad
+     * + the narrowing structure give the same base→vertical drop. AIR placements (the foundation's
+     * clear-above) don't count as "area". Equivalent to the schematic profile when there's no foundation.
+     */
+    public static int[] areaPerLayer(java.util.List<com.map2mc.build.Placement> placements) {
+        if (placements.isEmpty()) {
+            return new int[0];
+        }
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (var p : placements) {
+            int y = p.pos().getY();
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+        int[] area = new int[maxY - minY + 1];
+        for (var p : placements) {
+            if (!p.state().isAir()) {
+                area[p.pos().getY() - minY]++;
+            }
+        }
+        return area;
+    }
+
     /** Non-air block count per Y layer (index 0 = the bottom layer). */
     public static int[] areaPerLayer(SchematicData d) {
         int[] area = new int[d.height()];

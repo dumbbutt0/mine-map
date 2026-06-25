@@ -32,6 +32,18 @@ never owns the camera or recording.
   - **Anchor modes** (`AnchorMode`): `CORNER` = the given point is the build's min corner (the old
     behavior); `CENTER_GROUND` = the point is the build's horizontal **center** and, with ground-snap,
     its vertical **base**. `CENTER_GROUND` is the default for both `hero`/`preview` and the no-coord case.
+  - **Terrain-aware foundation** (`com.map2mc.terrain`, in NORMAL non-superflat worlds): so the build
+    sits in real generated scenery instead of floating on flatland. `submitHero` samples the LIVE ground
+    under the footprint (`TerrainSampler` — force-gen the footprint chunks, then `getTopY(MOTION_BLOCKING_NO_LEAVES)`
+    + biome/fluid per column → `TerrainSample`: min/median/max/slope + water/void flag), sites the build
+    base at the **median grade**, and generates a foundation (`FoundationGenerator`, pure: bridge DOWN
+    where ground < base, clear ABOVE within the footprint, material by biome) that's **combined with the
+    structure into one ascending-Y job** — the foundation builds first as part of the timelapse. The
+    **structure is re-resolved at the grade Y and otherwise untouched** (resolver unchanged); the
+    area-profile handoff is computed from the combined placements (`AreaProfile.areaPerLayer(List)`).
+    Superflat / `foundationEnabled=false` → drops at the anchor as before. Steep/deep/water → warns +
+    best-effort (capped at `foundationMaxBridge`). Knobs: `foundationEnabled`, `foundationSlopeThreshold`,
+    `foundationMaxBridge`, `foundationStyle` (auto|stone|cobble|dirt).
   - **Coords** use the vanilla `Vec3ArgumentType.vec3(false)`, so `~ ~ ~` (relative) and `^ ^ ^N`
     (local) resolve against the command source for free. No-coord `hero <file>` drops the build a
     configurable distance in front of the player (`Map2mcConfig.frontDistance`, ground-snapped),

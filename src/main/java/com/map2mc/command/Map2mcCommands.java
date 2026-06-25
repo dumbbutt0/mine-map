@@ -6,6 +6,9 @@ import com.map2mc.build.BuildJob;
 import com.map2mc.build.BuildQueue;
 import com.map2mc.build.BuildQueueManager;
 import com.map2mc.film.AreaProfile;
+import com.map2mc.terrain.FoundationGenerator;
+import com.map2mc.terrain.TerrainSample;
+import com.map2mc.terrain.TerrainSampler;
 import com.map2mc.film.DirectorCamera;
 import com.map2mc.build.BuildSettings;
 import com.map2mc.build.ChunkPlacer;
@@ -51,12 +54,14 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.gen.chunk.FlatChunkGenerator;
 import net.minecraft.util.math.Vec3d;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -297,35 +302,70 @@ public final class Map2mcCommands {
     }
 
     /** What a successful hero submission yields — shared by {@code hero} and {@code film}. */
-    private record HeroSubmit(long id, int count, SchematicData data, Bounds bounds, int etaSec, int bpt) {
+    private record HeroSubmit(long id, int count, SchematicData data, Bounds bounds, int etaSec, int bpt,
+                              double handoffProgress) {
     }
 
     /**
-     * Load + submit a hero build through the shared pipeline (resolver → pacing → queue → LastBuild).
-     * Returns {@code null} after sending an error on failure. Reused by {@code film} so the camera
-     * always tracks exactly the build {@code hero} would have made.
+     * Load + submit a hero build through the shared pipeline (resolver → terrain foundation → pacing →
+     * queue → LastBuild). Returns {@code null} after sending an error on failure. Reused by {@code film}
+     * so the camera always tracks exactly the build {@code hero} would have made.
      */
     private static HeroSubmit submitHero(ServerCommandSource src, String name, BlockPos anchor,
                                          AnchorMode mode, Rotation4 rot) {
         ServerWorld world = src.getWorld();
         try {
             Resolved r = load(name, anchor, mode, rot);
-            List<Placement> placements = r.build().placements();
-            if (placements.isEmpty()) {
+            List<Placement> structure = r.build().placements();
+            if (structure.isEmpty()) {
                 src.sendError(Text.literal("map2mc: '" + name + "' has no non-air blocks"));
                 return null;
             }
+
+            // Terrain-aware foundation: in a NORMAL (non-superflat) world, sit the build at local grade
+            // on a generated foundation (bridge the low side, clear the high side) and COMBINE it with
+            // the structure into one ascending-Y job — the foundation, being lower, builds first as part
+            // of the timelapse. The structure is re-resolved at the grade Y (the resolver is unchanged).
+            // Superflat / foundationEnabled=false → drop at the anchor exactly as before.
+            List<Placement> placements = structure;
+            Bounds bounds = r.build().bounds();
+            boolean superflat = world.getChunkManager().getChunkGenerator() instanceof FlatChunkGenerator;
+            if (Map2mcConfig.foundationEnabled && !superflat) {
+                TerrainSampler.Result ts = TerrainSampler.sample(world, bounds, Map2mcConfig.foundationStyle);
+                final TerrainSample s = ts.sample();
+                final int baseY = s.medianY();
+                List<Placement> grounded = load(name,
+                        new BlockPos(anchor.getX(), baseY, anchor.getZ()), mode, rot).build().placements();
+                List<Placement> foundation = FoundationGenerator.generate(
+                        bounds, baseY, ts.surfaceY(), ts.material(), Map2mcConfig.foundationMaxBridge);
+                List<Placement> combined = new ArrayList<>(foundation.size() + grounded.size());
+                combined.addAll(foundation);
+                combined.addAll(grounded);
+                placements = combined;
+                bounds = Bounds.fromPlacements(combined);
+                if (s.hasWaterOrVoid() || s.maxBridgeDepth(baseY) > Map2mcConfig.foundationMaxBridge
+                        || s.slope() > Map2mcConfig.foundationSlopeThreshold) {
+                    src.sendFeedback(() -> Text.literal(String.format(
+                            "map2mc: sited at grade y=%d (slope %d%s) — a flatter, dry spot foundations cleaner.",
+                            baseY, s.slope(), s.hasWaterOrVoid() ? ", water present" : "")), false);
+                }
+            }
+
             int count = placements.size();
             // Duration-driven pacing is the default; /map2mc pace sets the policy, /map2mc speed
-            // still live-retunes after submit. blocksPerTick is derived from the non-air count.
+            // still live-retunes after submit. blocksPerTick is derived from the (combined) block count.
             int bpt = PaceSetting.resolveBpt(count);
             BuildSettings settings = new BuildSettings(bpt, Block.NOTIFY_LISTENERS, true);
             long id = BuildQueueManager.get(world).submit(placements, new AscendingYStrategy(),
                     OrderingContext.fromPlacements(placements), settings, "hero " + name);
             int eta = Pacing.estimateSeconds(count, bpt);
             // Remember this build so /map2mc orbit and /map2mc film can frame a camera around it.
-            LastBuild.set(world, r.build().bounds(), eta, "hero " + name);
-            return new HeroSubmit(id, count, r.data(), r.build().bounds(), eta, bpt);
+            LastBuild.set(world, bounds, eta, "hero " + name);
+            // Handoff from the ACTUAL submitted blocks (foundation + structure), so the area-profile cut
+            // fires at the foundation→structure narrowing (equivalent to the schem when no foundation).
+            double handoff = AreaProfile.handoffProgress(
+                    AreaProfile.areaPerLayer(placements), Map2mcConfig.filmTransitionFrac);
+            return new HeroSubmit(id, count, r.data(), bounds, eta, bpt, handoff);
         } catch (Exception e) {
             Map2mc.LOGGER.error("[map2mc] hero failed for {}", name, e);
             src.sendError(Text.literal("map2mc: hero failed: " + e.getMessage()));
@@ -420,7 +460,7 @@ public final class Map2mcCommands {
         Vec3d fallbackAim = Vec3d.ofCenter(h.bounds().centerBase());
         // Precompute the aerial→orbit handoff from the schematic's per-layer block counts (the base→
         // vertical narrowing); <0 = no clear transition → the director falls back to the height frac.
-        double handoffProgress = AreaProfile.handoffProgress(h.data(), Map2mcConfig.filmTransitionFrac);
+        double handoffProgress = h.handoffProgress(); // computed from the actual submitted (combined) blocks
         // radius <= 0 → dynamic current-extent framing (default); > 0 pins the orbit radius.
         DirectorCamera.start(world, player, job, h.bounds(), radius, Map2mcConfig.frontierWindow,
                 fallbackAim, h.etaSec(), handoffProgress);

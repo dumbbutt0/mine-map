@@ -101,6 +101,22 @@ public final class Map2mcConfig {
      *  transition). Lower → only a sharper narrowing counts; the transition Y itself is set by the build. */
     public static volatile double filmTransitionFrac = 0.40;
 
+    // ── Terrain-aware foundation (normal generated worlds) ───────────────────────────────────────
+    // In a non-superflat world the build samples the live ground and lays a foundation that grounds it
+    // at local grade (bridge low side, clear high side) so it sits naturally instead of floating.
+
+    /** Generate a terrain-integrating foundation in non-superflat worlds (false = drop at the anchor). */
+    public static volatile boolean foundationEnabled = true;
+
+    /** Ground slope (blocks, max−min) above which the site counts as notably sloped (informational warn). */
+    public static volatile int foundationSlopeThreshold = 4;
+
+    /** Max depth the foundation will bridge below the base before warning the spot is too steep/deep. */
+    public static volatile int foundationMaxBridge = 24;
+
+    /** Foundation fill material: {@code auto} (dominant surface block) | {@code stone|cobble|dirt}. */
+    public static volatile String foundationStyle = "auto";
+
     // ── Runtime tuning registry (/map2mc set | get) ──────────────────────────────────────────────
     // Tune the knobs above live while dialing in the framing — no rebuild. Values are RUNTIME-ONLY
     // (process-global, not persisted): they reset on relaunch, so once you like them, bake the
@@ -149,6 +165,16 @@ public final class Map2mcConfig {
         };
     }
 
+    private static String strIn(String v, String... allowed) {
+        String s = v.trim().toLowerCase(java.util.Locale.ROOT);
+        for (String a : allowed) {
+            if (a.equals(s)) {
+                return s;
+            }
+        }
+        throw new IllegalArgumentException("must be one of " + String.join("|", allowed));
+    }
+
     // Registry order = the order `/map2mc get` lists them (the V2-1 framing knobs grouped last).
     private static final java.util.List<Knob> KNOBS = java.util.List.of(
             new Knob("frontDistance", () -> String.valueOf(frontDistance), v -> frontDistance = dblIn(v, 0, 256)),
@@ -171,7 +197,11 @@ public final class Map2mcConfig {
             new Knob("filmAerialPitchDeg", () -> String.valueOf(filmAerialPitchDeg), v -> filmAerialPitchDeg = dblIn(v, 20, 85)),
             new Knob("filmAerialMargin", () -> String.valueOf(filmAerialMargin), v -> filmAerialMargin = dblIn(v, 0.5, 4)),
             new Knob("filmAerialTurns", () -> String.valueOf(filmAerialTurns), v -> filmAerialTurns = dblIn(v, 0, 4)),
-            new Knob("filmTransitionFrac", () -> String.valueOf(filmTransitionFrac), v -> filmTransitionFrac = dblIn(v, 0.01, 1)));
+            new Knob("filmTransitionFrac", () -> String.valueOf(filmTransitionFrac), v -> filmTransitionFrac = dblIn(v, 0.01, 1)),
+            new Knob("foundationEnabled", () -> String.valueOf(foundationEnabled), v -> foundationEnabled = boolIn(v)),
+            new Knob("foundationSlopeThreshold", () -> String.valueOf(foundationSlopeThreshold), v -> foundationSlopeThreshold = intIn(v, 0, 256)),
+            new Knob("foundationMaxBridge", () -> String.valueOf(foundationMaxBridge), v -> foundationMaxBridge = intIn(v, 1, 256)),
+            new Knob("foundationStyle", () -> foundationStyle, v -> foundationStyle = strIn(v, "auto", "stone", "cobble", "dirt")));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {
