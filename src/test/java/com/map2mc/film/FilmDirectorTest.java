@@ -239,4 +239,33 @@ class FilmDirectorTest {
             prev = k;
         }
     }
+
+    // ── trackingPose: the LINEAR (bridge/wall) dolly ────────────────────────────────────────────
+
+    /** A long linear build along X: 200 long, 8 wide, 20 tall, based at y=64. */
+    private static final Bounds LINEAR = new Bounds(0, 64, 0, 199, 83, 7);
+
+    @Test
+    void trackingDollySweepsTheLongAxisEndToEnd() {
+        OrbitKeyframe start = FilmDirector.trackingPose(LINEAR, 0.0, 9, 16, 70, 0.15, 1.0, 0.4, 0, 0);
+        OrbitKeyframe end = FilmDirector.trackingPose(LINEAR, 1.0, 9, 16, 70, 0.15, 1.0, 0.4, 0, 0);
+        // long axis is X here; the camera's X should travel from the min end to the max end
+        assertTrue(start.x() < end.x(), "camera dollies along the long axis");
+        assertTrue(start.x() <= 5 && end.x() >= 195, "sweep spans essentially the whole length");
+    }
+
+    @Test
+    void trackingDollyRunsAlongsideAndAimsAtTheCenterline() {
+        double cz = (LINEAR.minZ() + LINEAR.maxZ() + 1) / 2.0; // build centerline Z (=4)
+        for (double f = 0.0; f <= 1.0; f += 0.1) {
+            OrbitKeyframe k = FilmDirector.trackingPose(LINEAR, f, 9, 16, 70, 0.15, 1.0, 0.4, 0, 0);
+            // camera sits to one side (lateral offset on Z), not on the centerline
+            assertTrue(Math.abs(k.z() - cz) > LINEAR.sizeZ() / 2.0, "camera is offset to the side of the build");
+            // yaw points toward the build (its centerline is at smaller Z than the camera → look -Z-ish);
+            // reconstruct the forward vector and check it has a component toward the build in Z
+            double yaw = Math.toRadians(k.yaw());
+            double fz = Math.cos(yaw) * Math.cos(Math.toRadians(k.pitch()));
+            assertTrue((cz - k.z()) * fz > 0, "camera looks toward the build centerline");
+        }
+    }
 }

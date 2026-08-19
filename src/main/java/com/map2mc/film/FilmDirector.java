@@ -128,6 +128,51 @@ public final class FilmDirector {
     }
 
     /**
+     * TRACKING DOLLY for a LINEAR build (a bridge/wall — one horizontal axis dominates): you can't fit a
+     * long build in one frame, so the camera flies ALONGSIDE its long axis at a fixed lateral+vertical
+     * offset, aiming at the build centerline at its current sweep point, dollying end→end as
+     * {@code frac} goes 0→1. Pure. The lateral distance reuses the V2-1 FOV math on the CROSS-SECTION
+     * (height × short-width) so the build fills the frame while the camera travels its length.
+     *
+     * @param frac          progress in [0,1] = position along the long axis (start → end)
+     * @param camHeightFrac camera height as a fraction of the build height (aim is at mid-height)
+     */
+    public static OrbitKeyframe trackingPose(Bounds fullBounds, double frac,
+                                             int aspectW, int aspectH, double baseFovDeg,
+                                             double headroomFrac, double margin, double camHeightFrac,
+                                             long renderMs, long buildMs) {
+        boolean longX = fullBounds.sizeX() >= fullBounds.sizeZ();
+        double baseY = fullBounds.minY();
+        double span = Math.max(1.0, fullBounds.sizeY());
+        double crossHalf = Math.max(1.0, (longX ? fullBounds.sizeZ() : fullBounds.sizeX()) / 2.0);
+
+        double tanV = Math.tan(Math.toRadians(baseFovDeg) / 2.0);
+        double tanH = ((double) aspectW / aspectH) * tanV;
+        double dV = (span * 0.5 + headroomFrac * span) / tanV; // fit the cross-section HEIGHT
+        double dW = crossHalf / tanH;                          // fit the cross-section WIDTH
+        double lateral = Math.max(4.0, Math.max(dV, dW) * margin);
+
+        double f = Math.max(0.0, Math.min(1.0, frac));
+        double longMin = longX ? fullBounds.minX() : fullBounds.minZ();
+        double longMax = (longX ? fullBounds.maxX() : fullBounds.maxZ()) + 1.0;
+        double sweep = longMin + f * (longMax - longMin);
+        double crossCenter = longX ? (fullBounds.minZ() + fullBounds.maxZ() + 1) / 2.0
+                : (fullBounds.minX() + fullBounds.maxX() + 1) / 2.0;
+
+        double camY = baseY + camHeightFrac * span;
+        double aimY = baseY + 0.5 * span;
+        double camX = longX ? sweep : crossCenter + lateral;
+        double camZ = longX ? crossCenter + lateral : sweep;
+        double aimX = longX ? sweep : crossCenter;
+        double aimZ = longX ? crossCenter : sweep;
+
+        float[] look = Orbit.lookAt(camX, camY, camZ, aimX, aimY, aimZ);
+        long renderT = Math.round(renderMs * f);
+        long replayT = Math.round(buildMs * f);
+        return new OrbitKeyframe(camX, camY, camZ, look[0], look[1], 0f, renderT, replayT);
+    }
+
+    /**
      * @param progress    build progress in [0,1] (the ONLY clock)
      * @param frontier    the construction front (aim target)
      * @param params      orbit framing (cx, cz, radius) — derived once from the build's bounds

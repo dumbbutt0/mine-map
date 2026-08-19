@@ -45,16 +45,20 @@ test's `system-out`).
 
 ## Fix list / roadmap (build in this order — each unblocks the next)
 
-1. **StructureProfile + classifier** — compute once per `.schem`: bounding dims, an **aspect class**
-   (TALL / WIDE / LINEAR / SQUAT, from the ratios + the area profile), the area-profile beats, hero
-   features. This is what lets the system pick *behavior by shape* instead of one height-only gate.
-   (Generalizes `AreaProfile`, "the early slice of the V2-2 analyzer".)
-2. **Generalized shot library** — make the current aerial + rising-orbit *two entries among several*:
-   add a high/top-down orbit (WIDE), a tracking dolly (LINEAR), and detail push-ins (SQUAT). Select by
-   the structure class. This is the fix Findings 2–3 demand.
+1. ✅ **StructureProfile + classifier** (`film/StructureProfile.java`) — computed once per build from
+   bounding dims + the area profile; emits an **aspect class** (NARROWING_VERTICAL / TALL / WIDE_LOW /
+   LINEAR / SQUAT) plus its **reasoning** (raw ratios), with a `/map2mc set filmStructureClass` override.
+   Verified by `StructureProfileTest` + the probe's class assertions.
+2. **Generalized shot library** (in progress) — make the current aerial + rising-orbit *entries among
+   several*, selected by the structure class:
+   - ✅ **LINEAR → tracking dolly** (`FilmDirector.trackingPose`, wired in `DirectorCamera.tickFilm`).
+     The probe now shows LINEAR = TRACKING / 0% aerial (was the shape-blind 14% orbit) — the coupling is
+     broken end-to-end for linear builds.
+   - ☐ **WIDE_LOW → high / top-down orbit**; ☐ **TALL/SQUAT → orbit + detail push-ins.** The probe still
+     shows these as the shape-blind AERIAL+ORBIT split (kept asserted so the gap stays visible).
 3. **Externalized StyleProfile** — pull the Donut-tuned knobs out of `Map2mcConfig` defaults into a
    named, swappable profile (framing/FOV/pacing/shot preferences; later a CLIP reference set for the
-   vision scorer). `filmTimeOfDay` (just shipped) is **field #1** of this profile.
+   vision scorer). `filmTimeOfDay` (shipped) is **field #1** of this profile.
 4. **AI pre-flight planner** — sits on top: `(StructureProfile) × (StyleProfile) → shot plan →`
    the existing deterministic executor. A new schem is "classify it"; a new style is "write a profile";
    neither touches camera code. That seam is the actual definition of "scalable" here.

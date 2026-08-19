@@ -28,6 +28,16 @@ public enum Rotation4 {
         return this == CW90 || this == CW270;
     }
 
+    /** Inverse of {@link #fromDegrees} — for reporting (e.g. the probe scorecard JSON). */
+    public int degrees() {
+        return switch (this) {
+            case NONE -> 0;
+            case CW90 -> 90;
+            case CW180 -> 180;
+            case CW270 -> 270;
+        };
+    }
+
     public static Rotation4 fromDegrees(int degrees) {
         int d = ((degrees % 360) + 360) % 360;
         return switch (d) {

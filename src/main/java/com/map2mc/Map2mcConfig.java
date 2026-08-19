@@ -161,6 +161,11 @@ public final class Map2mcConfig {
      *  choice (a warm look may want golden); it will move into a named style profile when that lands. */
     public static volatile String filmTimeOfDay = "noon";
 
+    /** Override the structure-shape classification that picks the camera's shot:
+     *  {@code auto} (classify) | narrowing | tall | wide | linear | squat. Lets you cheaply correct a
+     *  misread shape without waiting on a classifier fix (same idea as the live framing knobs). */
+    public static volatile String filmStructureClass = "auto";
+
     /** Resolve {@link #filmTimeOfDay} to a daytime tick, or -1 to leave time unchanged ({@code off}). */
     public static int timeOfDayTicks() {
         String v = filmTimeOfDay == null ? "" : filmTimeOfDay.trim().toLowerCase(java.util.Locale.ROOT);
@@ -296,7 +301,9 @@ public final class Map2mcConfig {
             new Knob("recordOutputDir", () -> recordOutputDir.isEmpty() ? "(default)" : recordOutputDir, v -> recordOutputDir = v.trim()),
             new Knob("plazaDecorate", () -> String.valueOf(plazaDecorate), v -> plazaDecorate = boolIn(v)),
             new Knob("plazaTreeRings", () -> String.valueOf(plazaTreeRings), v -> plazaTreeRings = intIn(v, 0, 6)),
-            new Knob("filmTimeOfDay", () -> filmTimeOfDay, v -> filmTimeOfDay = timeOfDayIn(v)));
+            new Knob("filmTimeOfDay", () -> filmTimeOfDay, v -> filmTimeOfDay = timeOfDayIn(v)),
+            new Knob("filmStructureClass", () -> filmStructureClass,
+                    v -> filmStructureClass = strIn(v, "auto", "narrowing", "tall", "wide", "linear", "squat")));
 
     /** Set a knob by (case-insensitive) name from text; validates + assigns; returns the stored value. */
     public static String set(String key, String value) {

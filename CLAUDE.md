@@ -228,6 +228,13 @@ in the timelapse; `.mcpr` + orbit table saved under `recordOutputDir` (map2mc po
 `scout <path> [radius]` (sample a grid of nearby sites via `TerrainSampler`, rank with the pure
 `com.map2mc.terrain.SiteScore` — flatness/no-water/green-biome/shallow-bridging — and record-build at the
 best, so builds never look plopped). See RECORDING.md §H.
+`probe <path> [pos] [rotation]` (**side-effect-free** siting scorecard — SPEC §8's structured-JSON
+channel, `com.map2mc.probe`): resolve the placement, sample the terrain, and write
+`<gameDir>/map2mc/probes/<name>.json` (fixed schema, documented in `ProbeExporter`): schem features
+(dims / non-air / footprint aspect), the `SiteScore` components each as its own field, guardrails
+(`clip`/`float`/`halfBuried`/`underwater`/`bridgeCapExceeded`, each flag + magnitude, from
+`TerrainSample` + `FoundationGenerator.plan` fill/clear volumes). Builds NOTHING (only samples
+chunks, like `scout`); one summary line in chat/log.
 `pos` accepts vanilla `~`/`^` coords. Schematic paths resolve under `<gameDir>/map2mc/schematics/`.
 `get` / `set <key> <value>` — live-tune the `Map2mcConfig` knobs while dialing in the framing (no
 rebuild): `get` lists every knob + current value; `set` validates against a sane range, assigns, and
@@ -261,7 +268,9 @@ cd /home/dummy/clones/mine-map
 
 ./gradlew build            # compile + assemble (Phase gate: must succeed)
 ./gradlew runClient        # launches under WSLg, capped at -Xmx2G (visual gates)
-./gradlew runGametest      # headless logic gates (Phase 1+; added with the tests)
+./gradlew runGametest      # headless GameTest gate (gametest source set; wired via
+                           # fabricApi.configureTests in build.gradle — tests live in
+                           # src/gametest/, register through the fabric-gametest entrypoint)
 ```
 
 Verification is **headless-first**: GameTests + the `dumpschem`-vs-Python diff prove logic without

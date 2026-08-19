@@ -50,6 +50,7 @@ public final class DirectorCamera {
         final float startPitch;
         final long buildMs;
         final double handoffProgress; // area-profile aerial→orbit cut point; <0 = defer to height
+        final StructureProfile.AspectClass structureClass; // shape → which shot is used
         DirectorState.Pose lastPose;
         double maxFrontierY = Double.NEGATIVE_INFINITY; // monotonic clamp so the camera never dips
         boolean cutToOrbit = false;   // fired once when the aerial→orbit handoff is crossed
@@ -57,7 +58,8 @@ public final class DirectorCamera {
 
         Film(UUID player, ServerWorld world, BuildJob job, Bounds fullBounds, int radiusOverride,
              int window, Vec3d fallbackAim, GameMode prevMode, Vec3d startPos, float startYaw,
-             float startPitch, long buildMs, double handoffProgress) {
+             float startPitch, long buildMs, double handoffProgress,
+             StructureProfile.AspectClass structureClass) {
             this.player = player;
             this.world = world;
             this.worldKey = world.getRegistryKey();
@@ -72,6 +74,7 @@ public final class DirectorCamera {
             this.startPitch = startPitch;
             this.buildMs = buildMs;
             this.handoffProgress = handoffProgress;
+            this.structureClass = structureClass;
         }
     }
 
@@ -90,7 +93,8 @@ public final class DirectorCamera {
      */
     public static void start(ServerWorld world, ServerPlayerEntity player, BuildJob job,
                              Bounds fullBounds, int radiusOverride, int window, Vec3d fallbackAim,
-                             int durationSecs, double handoffProgress) {
+                             int durationSecs, double handoffProgress,
+                             StructureProfile.AspectClass structureClass) {
         RegistryKey<World> key = world.getRegistryKey();
         Film existing = ACTIVE.remove(key);
         UUID pid = null;
@@ -111,7 +115,8 @@ public final class DirectorCamera {
             player.changeGameMode(GameMode.SPECTATOR);
         }
         Film f = new Film(pid, world, job, fullBounds, radiusOverride, Math.max(1, window), fallbackAim,
-                prev, startPos, startYaw, startPitch, Math.max(1, durationSecs) * 1000L, handoffProgress);
+                prev, startPos, startYaw, startPitch, Math.max(1, durationSecs) * 1000L, handoffProgress,
+                structureClass);
         ACTIVE.put(key, f);
         tickFilm(player, f); // cut to the start pose
     }
@@ -217,7 +222,17 @@ public final class DirectorCamera {
         final String phase;
         final double logRadius;
         final double logAimY;
-        if (aerial) {
+        if (f.structureClass == StructureProfile.AspectClass.LINEAR) {
+            // Shape-driven shot: a tracking dolly along the long axis (a circling orbit is wrong for a
+            // long, thin build). One smooth sweep across the build's length over the whole timeline.
+            k = FilmDirector.trackingPose(f.fullBounds, progress,
+                    Map2mcConfig.filmAspectW, Map2mcConfig.filmAspectH, Map2mcConfig.filmBaseFovDeg,
+                    Map2mcConfig.filmHeadroomFrac, Map2mcConfig.filmFrameMargin,
+                    Map2mcConfig.filmHeroCamFrac, 0L, f.buildMs);
+            phase = "tracking";
+            logRadius = Math.hypot(k.x() - cx, k.z() - cz);
+            logAimY = baseY + 0.5 * finalHeight;
+        } else if (aerial) {
             // Low phase: a high-oblique aerial shot looking DOWN at the footprint (the legs/platform
             // pattern is the subject), drifting its azimuth slowly across the phase.
             double aerialFrac = Map2mcConfig.filmAerialTurns

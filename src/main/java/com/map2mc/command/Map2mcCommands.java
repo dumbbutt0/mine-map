@@ -13,6 +13,7 @@ import com.map2mc.terrain.SiteScout;
 import com.map2mc.terrain.TerrainSample;
 import com.map2mc.terrain.TerrainSampler;
 import com.map2mc.film.DirectorCamera;
+import com.map2mc.film.StructureProfile;
 import com.map2mc.build.BuildSettings;
 import com.map2mc.build.ChunkPlacer;
 import com.map2mc.build.Placement;
@@ -31,6 +32,7 @@ import com.map2mc.pace.Pacing;
 import com.map2mc.pace.PaceSetting;
 import com.map2mc.place.PlacementResolver;
 import com.map2mc.place.ResolvedBuild;
+import com.map2mc.probe.ProbeRunner;
 import com.map2mc.preview.PreviewManager;
 import com.map2mc.recording.RecordingManager;
 import com.map2mc.recording.ReplayBridge;
@@ -246,6 +248,14 @@ public final class Map2mcCommands {
                                         .then(argument("opts", StringArgumentType.greedyString())
                                                 .executes(ctx -> recordAt(ctx,
                                                         StringArgumentType.getString(ctx, "opts")))))))
+                // ── probe <path> [pos] [rotation] — score a placement, write JSON, build NOTHING ─
+                .then(literal("probe").then(argument("path", StringArgumentType.string())
+                        .executes(Map2mcCommands::probeDefault)
+                        .then(argument("pos", Vec3ArgumentType.vec3(false))
+                                .executes(ctx -> probePos(ctx, 0))
+                                .then(argument("rotation", IntegerArgumentType.integer(0, 270))
+                                        .executes(ctx -> probePos(ctx,
+                                                IntegerArgumentType.getInteger(ctx, "rotation")))))))
                 // ── scout <path> [radius] — find a good site nearby, then record-build there ────
                 .then(literal("scout")
                         .then(argument("path", StringArgumentType.string())
@@ -332,7 +342,7 @@ public final class Map2mcCommands {
 
     /** What a successful hero submission yields — shared by {@code hero}, {@code film}, {@code record}. */
     private record HeroSubmit(long id, int count, SchematicData data, Bounds bounds, int etaSec, int bpt,
-                              double handoffProgress) {
+                              double handoffProgress, StructureProfile profile) {
     }
 
     /** blocks-per-tick to lay {@code count} blocks over {@code seconds} of wall time (≥1). */
@@ -449,9 +459,14 @@ public final class Map2mcCommands {
             // Remember this build so /map2mc orbit and /map2mc film can frame a camera around it.
             LastBuild.set(world, bounds, eta, "hero " + name);
             // Handoff from the structure's own per-layer profile (the foundation is now a separate job).
-            double handoff = AreaProfile.handoffProgress(
-                    AreaProfile.areaPerLayer(placements), Map2mcConfig.filmTransitionFrac);
-            return new HeroSubmit(id, count, r.data(), bounds, eta, bpt, handoff);
+            int[] area = AreaProfile.areaPerLayer(placements);
+            double handoff = AreaProfile.handoffProgress(area, Map2mcConfig.filmTransitionFrac);
+            // Classify the build's SHAPE so the director can pick a shot by structure type (the camera
+            // is otherwise tower-coupled — see CAMERA_SCALABILITY.md). Honors the filmStructureClass override.
+            StructureProfile profile = StructureProfile.resolve(bounds, area,
+                    Map2mcConfig.filmTransitionFrac, Map2mcConfig.filmStructureClass);
+            Map2mc.LOGGER.info("[map2mc] structure: {}", profile.reasoning());
+            return new HeroSubmit(id, count, r.data(), bounds, eta, bpt, handoff, profile);
         } catch (Exception e) {
             Map2mc.LOGGER.error("[map2mc] hero failed for {}", name, e);
             src.sendError(Text.literal("map2mc: hero failed: " + e.getMessage()));
@@ -551,7 +566,7 @@ public final class Map2mcCommands {
         double handoffProgress = h.handoffProgress(); // computed from the actual submitted (combined) blocks
         // radius <= 0 → dynamic current-extent framing (default); > 0 pins the orbit radius.
         DirectorCamera.start(world, player, job, h.bounds(), radius, Map2mcConfig.frontierWindow,
-                fallbackAim, h.etaSec(), handoffProgress);
+                fallbackAim, h.etaSec(), handoffProgress, h.profile().aspectClass());
 
         final String framing = radius > 0
                 ? "fixed orbit r=" + radius : "dynamic framing (tracks current extent)";
@@ -642,7 +657,7 @@ public final class Map2mcCommands {
         }
         Vec3d fallbackAim = Vec3d.ofCenter(h.bounds().centerBase());
         DirectorCamera.start(world, player, job, h.bounds(), -1, Map2mcConfig.frontierWindow,
-                fallbackAim, h.etaSec(), h.handoffProgress());
+                fallbackAim, h.etaSec(), h.handoffProgress(), h.profile().aspectClass());
 
         ReplayBridge.ChunkRegion region = ReplayBridge.regionFor(h.bounds(), Map2mcConfig.recordChunkMargin);
         UUID uuid = player == null ? null : player.getUuid();
@@ -721,6 +736,50 @@ public final class Map2mcCommands {
                 best.center().getX(), best.center().getZ(),
                 best.biome().isEmpty() ? "?" : best.biome())), false);
         return runRecord(src, name, anchor, AnchorMode.CENTER_GROUND, Rotation4.fromDegrees(0), -1);
+    }
+
+    // ── probe (side-effect-free siting scorecard — SPEC §8's structured-JSON channel) ──────────
+
+    /** {@code /map2mc probe <file>} with no coordinates: in front of the source, facing it. */
+    private static int probeDefault(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        SourcePose pose = poseOf(src);
+        BlockPos anchor = BlockPos.ofFloored(
+                LookMath.frontOfLookHorizontal(pose, Map2mcConfig.frontDistance));
+        return runProbe(src, StringArgumentType.getString(ctx, "path"), anchor,
+                LookMath.facingRotation(pose.yaw()));
+    }
+
+    private static int probePos(CommandContext<ServerCommandSource> ctx, int rotationDeg) {
+        ServerCommandSource src = ctx.getSource();
+        final Rotation4 rot;
+        try {
+            rot = Rotation4.fromDegrees(rotationDeg);
+        } catch (IllegalArgumentException e) {
+            src.sendError(Text.literal("map2mc: " + e.getMessage()));
+            return 0;
+        }
+        return runProbe(src, StringArgumentType.getString(ctx, "path"),
+                BlockPos.ofFloored(Vec3ArgumentType.getVec3(ctx, "pos")), rot);
+    }
+
+    /**
+     * Sample + score + write the JSON scorecard; place NOTHING. One feedback line, one log line —
+     * the machine-readable detail lives in the file.
+     */
+    private static int runProbe(ServerCommandSource src, String name, BlockPos anchor, Rotation4 rot) {
+        try {
+            ProbeRunner.Probed p = ProbeRunner.probe(src.getWorld(), name, anchor,
+                    AnchorMode.CENTER_GROUND, rot);
+            final String line = "map2mc: " + ProbeRunner.summary(p);
+            src.sendFeedback(() -> Text.literal(line), false);
+            Map2mc.LOGGER.info("[map2mc] {}", ProbeRunner.summary(p));
+            return 1;
+        } catch (Exception e) {
+            Map2mc.LOGGER.error("[map2mc] probe failed for {}", name, e);
+            src.sendError(Text.literal("map2mc: probe failed: " + e.getMessage()));
+            return 0;
+        }
     }
 
     // ── config (live tuning) ───────────────────────────────────────────────────────────────────

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "map2mc-gametest",
+  "version": "1.0.0",
+  "name": "map2mc GameTests",
+  "description": "Headless server-side game tests for map2mc (run via ./gradlew runGametest).",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "com.map2mc.gametest.ProbeGameTest"
+    ]
+  },
+  "depends": {
+    "fabricloader": "*",
+    "fabric-gametest-api-v1": "*",
+    "map2mc": "*"
+  }
+}

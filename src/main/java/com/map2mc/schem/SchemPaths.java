@@ -27,6 +27,11 @@ public final class SchemPaths {
         return FabricLoader.getInstance().getGameDir().resolve("map2mc").resolve("orbits");
     }
 
+    /** Where {@code /map2mc probe} JSON scorecards are written (Phase R groundwork). */
+    public static Path probeDir() {
+        return FabricLoader.getInstance().getGameDir().resolve("map2mc").resolve("probes");
+    }
+
     /** Resolve {@code name} under the schematics dir; throw if it escapes the directory. */
     public static Path resolveSchematic(String name) throws IOException {
         Path base = schematicsDir().toAbsolutePath().normalize();

@@ -30,6 +30,8 @@ class TerrainSampleTest {
     void waterOrVoidFlagSet() {
         TerrainSample s = TerrainSample.of(new int[]{64, 63, 65}, new boolean[]{false, true, false});
         assertTrue(s.hasWaterOrVoid());
+        assertEquals(1, s.waterOrVoidColumns());
+        assertEquals(0, TerrainSample.of(new int[]{64}, new boolean[1]).waterOrVoidColumns());
     }
 
     @Test
